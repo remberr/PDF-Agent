@@ -1,0 +1,58 @@
+# Virtual Environment
+
+.venv/
+venv/
+env/
+
+# Python Cache
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Distribution / Packaging
+
+build/
+dist/
+*.egg-info/
+
+# Environment Variables
+
+.env
+
+# IDE
+
+.vscode/
+.idea/
+
+# OS Files
+
+.DS_Store
+Thumbs.db
+
+# Streamlit
+
+.streamlit/secrets.toml
+
+# FAISS Vector Database
+
+vectorstore/
+faiss_index/
+
+# Uploaded PDFs
+
+data/uploaded_pdfs/
+
+# Logs
+
+*.log
+
+# Jupyter Notebook
+
+.ipynb_checkpoints/
+
+# Testing
+
+.pytest_cache/
+.coverage
+htmlcov/

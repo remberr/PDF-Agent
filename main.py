@@ -6,6 +6,15 @@ from langchain_community.document_loaders import PyPDFLoader
 from utils.text_splitter import split_documents
 from utils.vectorstore import create_vectorstore
 from utils.deepseek_client import ask_deepseek
+# Agent router
+from agent.pdf_agent import route_question
+
+# Agent tools
+from tools.pdf_qa_tool import pdf_qa_tool
+from tools.source_tool import source_tool
+from tools.pdf_summary_tool import pdf_summary_tool
+from tools.keyword_tool import keyword_tool
+from tools.compare_tool import compare_tool
 
 
 # Page title
@@ -129,33 +138,77 @@ if question:
         with st.chat_message("user"):
             st.markdown(question)
         
-        # Retrieve top 3 relevant chunks from FAISS
-        results = st.session_state.vectorstore.similarity_search(question, k=3)
+        # Agent decides which tool should be used
+        task_type = route_question(question)
 
-        # Generate answer with DeepSeek
-        answer = ask_deepseek(
-            question,
-            results,
-            st.session_state.messages
-        )
+        # QA Tool:
+        # Used for normal PDF question answering
+        if task_type == "qa":
+            answer, results = pdf_qa_tool(
+                question,
+                st.session_state.vectorstore,
+                st.session_state.messages
+            )
+        
+        # Source Tool:
+        # Used when the user only wants to find related pages or sources
+        elif task_type == "source":
+            results = source_tool(
+                question,
+                st.session_state.vectorstore
+            )
+
+            answer = "I found the following relevant sources in the PDFs."
+
+        # Summary Tool:
+        # Used when the user wants a summary
+        elif task_type == "summary":
+            answer, results = pdf_summary_tool(
+                st.session_state.vectorstore,
+                st.session_state.messages
+            )
+
+        # Keyword Tool:
+        # Used when the user wants keywords
+        elif task_type == "keyword":
+            answer, results = keyword_tool(
+                st.session_state.vectorstore,
+                st.session_state.messages
+            )
+
+        # Compare Tool:
+        # Used when the user wants to compare documents
+        elif task_type == "compare":
+            answer, results = compare_tool(
+                st.session_state.vectorstore,
+                st.session_state.messages
+            )
+
+        # Fallback:
+        # Used when no suitable tool is available
+        else:
+            results = []
+            answer = f"The '{task_type}' tool is not implemented yet."
 
         # Display assistant answer
         with st.chat_message("assistant"):
 
             st.markdown(answer)
 
-            # Display source chunks
-            with st.expander("Sources"):
+            # Display source documents if available
+            if results:
 
-                for i, doc in enumerate(results):
+                with st.expander("Sources"):
 
-                    source = doc.metadata.get("source", "Unknown Source")
-                    page = doc.metadata.get("page", 0) + 1
-                    
-                    st.markdown(f"**Source {i + 1}**")
-                    st.write(f"PDF: {source}")
-                    st.write(f"Page: {page}")
-                    st.write(doc.page_content[:800])
-        
+                    for i, doc in enumerate(results):
+
+                        source = doc.metadata.get("source", "Unknown Source")
+                        page = doc.metadata.get("page", 0) + 1
+                        
+                        st.markdown(f"**Source {i + 1}**")
+                        st.write(f"PDF: {source}")
+                        st.write(f"Page: {page}")
+                        st.write(doc.page_content[:800])
+            
         # Save assistant answer
         st.session_state.messages.append({"role": "assistant", "content": answer})

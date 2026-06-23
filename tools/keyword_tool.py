@@ -18,7 +18,7 @@ def keyword_tool(vectorstore, chat_history):
     # for keyword extraction
     results = vectorstore.similarity_search(
         "extract important keywords and key concepts from the PDFs",
-        k=5
+        k=10
     )
 
     # Keyword extraction instruction

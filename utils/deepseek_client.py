@@ -12,15 +12,15 @@ client = OpenAI(
 def ask_deepseek(question, docs, chat_history=None):
 
     context = "\n\n".join(
-    [
-        (
-            f"[PDF: {doc.metadata.get('source', 'Unknown Source')}]\n"
-            f"[Page: {doc.metadata.get('page', 0) + 1}]\n"
-            f"{doc.page_content}"
-        )
-        for doc in docs
-    ]
-)
+        [
+            (
+                f"[PDF: {doc.metadata.get('source', 'Unknown Source')}]\n"
+                f"[Page: {doc.metadata.get('page', 0) + 1}]\n"
+                f"{doc.page_content}"
+            )
+            for doc in docs
+        ]
+    )
 
     history_text = ""
 

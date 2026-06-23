@@ -14,7 +14,7 @@ def pdf_summary_tool(vectorstore, chat_history):
         results: Retrieved document chunks
     """
 
-# Retrieve more chunks to cover multiple PDFs
+    # Retrieve more chunks to cover multiple PDFs
     results = vectorstore.similarity_search(
         "document summary main topic overview",
         k=30

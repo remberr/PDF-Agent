@@ -31,9 +31,18 @@ Available tools:
 User question:
 {question}
 
-Return ONLY a JSON array of tool names.
-Example:
-["summary", "keyword"]
+Return ONLY valid JSON.
+
+Examples:
+["qa"]
+["summary"]
+["summary","keyword"]
+["compare","summary"]
+["compare","source"]
+
+Never explain your reasoning.
+Never return markdown.
+Never return code blocks.
 
 Rules:
 - If the user asks a normal question, return ["qa"].

@@ -15,26 +15,40 @@ def compare_tool(vectorstore, chat_history):
         results: Retrieved document chunks
     """
 
-    # Retrieve representative chunks
-    # from multiple documents
+    # Retrieve more chunks to cover multiple PDFs
     results = vectorstore.similarity_search(
-        "compare the uploaded PDFs",
-        k=10
+        "compare main topics methods results conclusions differences similarities",
+        k=30
     )
+
+    # Keep only a few chunks from each PDF
+    grouped_docs = {}
+    selected_docs = []
+
+    for doc in results:
+        source = doc.metadata.get("source", "Unknown Source")
+
+        if source not in grouped_docs:
+            grouped_docs[source] = 0
+
+        if grouped_docs[source] < 3:
+            selected_docs.append(doc)
+            grouped_docs[source] += 1
 
     # Comparison instruction
     question = (
-        "Compare the uploaded PDFs. "
-        "Identify their main topics, similarities, "
-        "differences, methods, and conclusions. "
-        "Present the comparison clearly."
+        "Compare EACH uploaded PDF separately. "
+        "Mention the PDF filename for each document. "
+        "Analyze their main topics, methods, similarities, "
+        "differences, and conclusions. "
+        "Then provide an overall comparison."
     )
 
     # Generate comparison result using DeepSeek
     answer = ask_deepseek(
         question,
-        results,
+        selected_docs,
         chat_history
     )
 
-    return answer, results
+    return answer, selected_docs

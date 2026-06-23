@@ -10,18 +10,18 @@ from utils.deepseek_client import ask_deepseek
 
 st.title("📄 PDF Agent")
 
-uploaded_file = st.file_uploader(
+uploaded_files = st.file_uploader(
     "Upload PDF",
     type=["pdf"],
     accept_multiple_files=True
 )
 
-if uploaded_file:
-    st.success(f"Uploaded: {len(uploaded_file)} PDF file(s).")
+if uploaded_files:
+    st.success(f"Uploaded: {len(uploaded_files)} PDF file(s).")
 
     all_docs = []
     
-    for uploaded_file in uploaded_file:
+    for uploaded_file in uploaded_files:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
             tmp_file.write(uploaded_file.getbuffer())
             pdf_path = tmp_file.name
@@ -39,8 +39,21 @@ if uploaded_file:
     chunks = split_documents(all_docs)
     st.write(f"Total Chunks: {len(chunks)}")
 
-    vectorstore = create_vectorstore(chunks)
-    st.success("Vector store created successfully!")
+    file_names = [file.name for file in uploaded_files]
+
+    if (
+        "vectorstore" not in st.session_state
+        or st.session_state.get("uploaded_files") != file_names
+    ):
+        with st.spinner("Creating vector store..."):
+            st.session_state.vectorstore = create_vectorstore(chunks)
+            st.session_state.uploaded_files = file_names
+        
+        st.success("Vector store created successfully!")
+    else:
+        st.success("Using cached vector store.")
+
+    vectorstore = st.session_state.vectorstore
 
     if "messages" not in st.session_state:
         st.session_state.messages = []

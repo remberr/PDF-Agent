@@ -17,14 +17,16 @@ def pdf_summary_tool(vectorstore, chat_history):
     # Retrieve representative chunks
     # for document summarization
     results = vectorstore.similarity_search(
-        "summarize the main content of the PDFs",
-        k=5
+        "main content summary overview",
+        k=10
     )
 
-    # Summary instruction
-    question = "Please summarize the main content of the uploaded PDFs."
+    question = (
+        "Please summarize each uploaded PDF separately, "
+        "then provide an overall summary. "
+        "Mention the PDF filename for each summary."
+    )
 
-    # Generate summary using DeepSeek
     answer = ask_deepseek(
         question,
         results,

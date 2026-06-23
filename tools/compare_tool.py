@@ -19,7 +19,7 @@ def compare_tool(vectorstore, chat_history):
     # from multiple documents
     results = vectorstore.similarity_search(
         "compare the uploaded PDFs",
-        k=8
+        k=10
     )
 
     # Comparison instruction

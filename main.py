@@ -6,15 +6,8 @@ from langchain_community.document_loaders import PyPDFLoader
 from utils.text_splitter import split_documents
 from utils.vectorstore import create_vectorstore
 from utils.deepseek_client import ask_deepseek
-# Agent router
-from agent.pdf_agent import route_question
 
-# Agent tools
-from tools.pdf_qa_tool import pdf_qa_tool
-from tools.source_tool import source_tool
-from tools.pdf_summary_tool import pdf_summary_tool
-from tools.keyword_tool import keyword_tool
-from tools.compare_tool import compare_tool
+from agent.graph_agent import build_pdf_agent_graph
 
 
 # Page title
@@ -138,57 +131,38 @@ if question:
         with st.chat_message("user"):
             st.markdown(question)
         
-        # Agent decides which tool should be used
-        task_type = route_question(question)
+        # Build and run LangGraph PDF Agent
+        pdf_agent_graph = build_pdf_agent_graph()
 
-        # QA Tool:
-        # Used for normal PDF question answering
-        if task_type == "qa":
-            answer, results = pdf_qa_tool(
-                question,
-                st.session_state.vectorstore,
-                st.session_state.messages
-            )
-        
-        # Source Tool:
-        # Used when the user only wants to find related pages or sources
-        elif task_type == "source":
-            results = source_tool(
-                question,
-                st.session_state.vectorstore
-            )
+        agent_result = pdf_agent_graph.invoke(
+            {
+                "question": question,
+                "steps": [],
+                "current_step": "",
+                "answers": [],
+                "answer": "",
+                "results": [],
+                "vectorstore": st.session_state.vectorstore,
+                "chat_history": st.session_state.messages
+            }
+        )
 
-            answer = "I found the following relevant sources in the PDFs."
-
-        # Summary Tool:
-        # Used when the user wants a summary
-        elif task_type == "summary":
-            answer, results = pdf_summary_tool(
-                st.session_state.vectorstore,
-                st.session_state.messages
-            )
-
-        # Keyword Tool:
-        # Used when the user wants keywords
-        elif task_type == "keyword":
-            answer, results = keyword_tool(
-                st.session_state.vectorstore,
-                st.session_state.messages
-            )
-
-        # Compare Tool:
-        # Used when the user wants to compare documents
-        elif task_type == "compare":
-            answer, results = compare_tool(
-                st.session_state.vectorstore,
-                st.session_state.messages
-            )
+        # Get graph outputs
+        answer = agent_result.get("answer", "")
+        answers = agent_result.get("answers", [])
 
         # Fallback:
-        # Used when no suitable tool is available
-        else:
-            results = []
-            answer = f"The '{task_type}' tool is not implemented yet."
+        # If final answer is empty,
+        # combine all tool outputs manually
+        if not answer and answers:
+            answer = "\n\n".join(answers)
+
+        results = agent_result.get("results", [])
+        steps = agent_result.get("steps", [])
+
+        st.caption(
+            f"Agent steps: {' → '.join(steps)}"
+        )
 
         # Display assistant answer
         with st.chat_message("assistant"):

@@ -10,46 +10,76 @@ from utils.deepseek_client import ask_deepseek
 
 st.title("📄 PDF Agent")
 
-uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
+uploaded_file = st.file_uploader(
+    "Upload PDF",
+    type=["pdf"],
+    accept_multiple_files=True
+)
 
 if uploaded_file:
-    st.success(f"Uploaded: {uploaded_file.name}")
+    st.success(f"Uploaded: {len(uploaded_file)} PDF file(s).")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        tmp_file.write(uploaded_file.getbuffer())
-        pdf_path = tmp_file.name
+    all_docs = []
+    
+    for uploaded_file in uploaded_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(uploaded_file.getbuffer())
+            pdf_path = tmp_file.name
 
-    loader = PyPDFLoader(pdf_path)
-    docs = loader.load()
+        loader = PyPDFLoader(pdf_path)
+        docs = loader.load()
 
-    st.subheader("PDF Information")
-    st.write(f"Total Pages: {len(docs)}")
+        for doc in docs:
+            doc.metadata["source"] = uploaded_file.name
 
-    chunks = split_documents(docs)
+        all_docs.extend(docs)
 
-    st.subheader("Chunk Information")
+    st.write(f"Total Pages: {len(all_docs)}")
+
+    chunks = split_documents(all_docs)
     st.write(f"Total Chunks: {len(chunks)}")
 
     vectorstore = create_vectorstore(chunks)
     st.success("Vector store created successfully!")
 
-    question = st.text_input("Ask a question about the PDF")
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    question = st.chat_input("Ask a question about the PDFs")
 
     if question:
+        st.session_state.messages.append({"role": "user", "content": question})
         results = vectorstore.similarity_search(question, k=3)
 
-        answer = ask_deepseek(question, results)
+        with st.chat_message("user"):
+            st.markdown(question)
+        
+        results = vectorstore.similarity_search(question, k=3)
 
-        st.subheader("Answer")
-        st.write(answer)
+        answer = ask_deepseek(
+            question,
+            results,
+            st.session_state.messages
+        )
 
-        st.subheader("Sources")
+        with st.chat_message("assistant"):
+            st.markdown(answer)
 
-        for i, doc in enumerate(results):
-            page = doc.metadata.get("page", 0) + 1
-
-            with st.expander(f"📄 Source {i + 1} - Page {page}"):
-                st.write(doc.page_content)
+            with st.expander("Sources"):
+                for i, doc in enumerate(results):
+                    source = doc.metadata.get("source", "Unknown Source")
+                    page = doc.metadata.get("page", 0) + 1
+                    
+                    st.markdown(f"**Source {i + 1}**")
+                    st.write(f"PDF: {source}")
+                    st.write(f"Page: {page}")
+                    st.write(doc.page_content[:800])
+        
+        st.session_state.messages.append({"role": "assistant", "content": answer})
 
 else:
     st.info("Please upload a PDF file first.")

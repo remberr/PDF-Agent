@@ -9,7 +9,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
-def ask_deepseek(question, docs):
+def ask_deepseek(question, docs, chat_history=None):
 
     context = "\n\n".join(
         [
@@ -18,19 +18,34 @@ def ask_deepseek(question, docs):
         ]
     )
 
+    history_text = ""
+
+    if chat_history:
+        for message in chat_history:
+            role = message["role"]
+            content = message["content"]
+            history_text += f"{role}: {content}\n"
+
     prompt = f"""
-You are a PDF assistant.
+You are a helpful PDF assistant.
 
-Answer the user's question based ONLY on the provided PDF content.
+You have two information sources:
+1. Chat History
+2. PDF Content
 
-If the answer cannot be found in the PDF,
-say that the information is not available.
+Rules:
+- If the user asks about the conversation itself, such as previous questions, first question, last question, or chat history, answer using Chat History.
+- If the user asks about the PDF, answer based ONLY on the PDF Content.
+- Use Chat History only to understand follow-up questions.
+- If the answer cannot be found in the PDF Content or Chat History, say the information is not available.
+
+Chat History:
+{history_text}
 
 PDF Content:
-
 {context}
 
-Question:
+Current Question:
 {question}
 """
 

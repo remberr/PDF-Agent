@@ -14,23 +14,37 @@ def pdf_summary_tool(vectorstore, chat_history):
         results: Retrieved document chunks
     """
 
-    # Retrieve representative chunks
-    # for document summarization
+# Retrieve more chunks to cover multiple PDFs
     results = vectorstore.similarity_search(
-        "main content summary overview",
-        k=10
+        "document summary main topic overview",
+        k=30
     )
 
+    # Keep only a few chunks from each PDF
+    grouped_docs = {}
+    selected_docs = []
+
+    for doc in results:
+        source = doc.metadata.get("source", "Unknown Source")
+
+        if source not in grouped_docs:
+            grouped_docs[source] = 0
+
+        if grouped_docs[source] < 3:
+            selected_docs.append(doc)
+            grouped_docs[source] += 1
+
     question = (
-        "Please summarize each uploaded PDF separately, "
-        "then provide an overall summary. "
-        "Mention the PDF filename for each summary."
+        "Please summarize EACH uploaded PDF separately. "
+        "For each PDF, mention the PDF filename, main topic, "
+        "key points, and conclusion. "
+        "Then provide a short overall summary."
     )
 
     answer = ask_deepseek(
         question,
-        results,
+        selected_docs,
         chat_history
     )
 
-    return answer, results
+    return answer, selected_docs

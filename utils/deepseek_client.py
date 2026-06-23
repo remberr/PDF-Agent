@@ -12,11 +12,15 @@ client = OpenAI(
 def ask_deepseek(question, docs, chat_history=None):
 
     context = "\n\n".join(
-        [
-            f"[Page {doc.metadata.get('page', 0) + 1}]\n{doc.page_content}"
-            for doc in docs
-        ]
-    )
+    [
+        (
+            f"[PDF: {doc.metadata.get('source', 'Unknown Source')}]\n"
+            f"[Page: {doc.metadata.get('page', 0) + 1}]\n"
+            f"{doc.page_content}"
+        )
+        for doc in docs
+    ]
+)
 
     history_text = ""
 
@@ -57,7 +61,7 @@ Current Question:
                 "content": prompt
             }
         ],
-        temperature=0.2
+        temperature=0
     )
 
     return response.choices[0].message.content

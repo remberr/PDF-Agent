@@ -5,7 +5,6 @@ from langchain_community.document_loaders import PyPDFLoader
 
 from utils.text_splitter import split_documents
 from utils.vectorstore import create_vectorstore
-from utils.deepseek_client import ask_deepseek
 
 from agent.graph_agent import build_pdf_agent_graph
 
@@ -29,6 +28,26 @@ if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 
 
+def display_sources(results):
+    """
+    Display retrieved source documents.
+    """
+
+    if results:
+
+        with st.expander("Sources"):
+
+            for i, doc in enumerate(results):
+
+                source = doc.metadata.get("source", "Unknown Source")
+                page = doc.metadata.get("page", 0) + 1
+
+                st.markdown(f"**Source {i + 1}**")
+                st.write(f"PDF: {source}")
+                st.write(f"Page: {page}")
+                st.write(doc.page_content[:800])
+
+
 # Upload PDFs
 uploaded_files = st.file_uploader(
     "Upload PDF",
@@ -38,6 +57,8 @@ uploaded_files = st.file_uploader(
 
 
 # Read newly uploaded PDFs
+new_pdf_loaded = False
+
 if uploaded_files:
 
     for uploaded_file in uploaded_files:
@@ -65,17 +86,19 @@ if uploaded_files:
         # Record loaded PDF filename
         st.session_state.loaded_pdfs.append(uploaded_file.name)
 
+        new_pdf_loaded = True
+
         st.success(f"Loaded PDF: {uploaded_file.name}")
 
-    # Rebuild vectorstore after adding new PDFs
-    if st.session_state.all_docs:
+# Rebuild vectorstore after adding new PDFs
+if st.session_state.all_docs and new_pdf_loaded:
 
-        with st.spinner("Building vectorstore..."):
+    with st.spinner("Building vectorstore..."):
 
-            chunks = split_documents(st.session_state.all_docs)
-            st.session_state.vectorstore = create_vectorstore(chunks)
-        
-        st.success("Vectorstore built successfully!")
+        chunks = split_documents(st.session_state.all_docs)
+        st.session_state.vectorstore = create_vectorstore(chunks)
+    
+    st.success("Vectorstore built successfully!")
 
 
 # Display loaded PDFs
@@ -109,7 +132,19 @@ if st.button("Clear all PDFs and chat history"):
 for message in st.session_state.messages:
 
     with st.chat_message(message["role"]):
+
         st.markdown(message["content"])
+
+        # Display agent workflow
+        if (message["role"] == "assistant" and "steps" in message and message["steps"]):
+
+            st.caption(
+                "Agent steps: " + " → ".join(message["steps"]))
+
+        # Display sources
+        if (message["role"] == "assistant" and "sources" in message and message["sources"]):
+
+            display_sources(message["sources"])
 
 
 # Chat input
@@ -160,29 +195,24 @@ if question:
         results = agent_result.get("results", [])
         steps = agent_result.get("steps", [])
 
-        st.caption(
-            f"Agent steps: {' → '.join(steps)}"
-        )
-
         # Display assistant answer
         with st.chat_message("assistant"):
 
             st.markdown(answer)
 
-            # Display source documents if available
-            if results:
+            # Display agent workflow
+            if steps:
+                st.caption("Agent steps: " + " → ".join(steps))
 
-                with st.expander("Sources"):
-
-                    for i, doc in enumerate(results):
-
-                        source = doc.metadata.get("source", "Unknown Source")
-                        page = doc.metadata.get("page", 0) + 1
-                        
-                        st.markdown(f"**Source {i + 1}**")
-                        st.write(f"PDF: {source}")
-                        st.write(f"Page: {page}")
-                        st.write(doc.page_content[:800])
+            # Display source documents
+            display_sources(results)
             
-        # Save assistant answer
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+        # Save assistant answer with steps and sources
+        st.session_state.messages.append(
+            {
+                "role": "assistant",
+                "content": answer,
+                "steps": steps,
+                "sources": results
+            }
+        )

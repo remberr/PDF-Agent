@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 
 from agent.state import AgentState
-from agent.chain_agent import plan_steps
+from agent.llm_planner import plan_steps_with_llm
 
 from tools.pdf_qa_tool import pdf_qa_tool
 from tools.source_tool import source_tool
@@ -9,13 +9,15 @@ from tools.pdf_summary_tool import pdf_summary_tool
 from tools.keyword_tool import keyword_tool
 from tools.compare_tool import compare_tool
 
+from utils.final_synthesizer import synthesize_final_answer
+
 
 def router_node(state: AgentState):
     """
     Plan one or more tool steps based on the user's question.
     """
 
-    steps = plan_steps(state["question"])
+    steps = plan_steps_with_llm(state["question"])
 
     return {
         "steps": steps,
@@ -138,13 +140,19 @@ def should_continue(state: AgentState):
 
 def final_node(state: AgentState):
     """
-    Combine all tool outputs into the final answer.
+    Synthesize all tool outputs into the final answer.
     """
 
+    question = state["question"]
+    steps = state.get("steps", [])
     answers = state.get("answers", [])
 
     if answers:
-        final_answer = "\n\n".join(answers)
+        final_answer = synthesize_final_answer(
+            question,
+            steps,
+            answers
+        )
     else:
         final_answer = "No answer was generated."
 

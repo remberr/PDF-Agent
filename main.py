@@ -7,6 +7,7 @@ from utils.text_splitter import split_documents
 from utils.vectorstore import create_vectorstore
 from utils.deepseek_client import ask_deepseek
 
+
 st.title("📄 PDF Agent")
 
 uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
@@ -42,14 +43,13 @@ if uploaded_file:
         st.subheader("Answer")
         st.write(answer)
 
-        st.subheader("Search Results")
+        st.subheader("Sources")
 
         for i, doc in enumerate(results):
-            st.markdown(f"### Result {i + 1}")
-            st.write(doc.page_content[:1000])
+            page = doc.metadata.get("page", 0) + 1
 
-            if "page" in doc.metadata:
-                st.caption(f"Page: {doc.metadata['page'] + 1}")
+            with st.expander(f"📄 Source {i + 1} - Page {page}"):
+                st.write(doc.page_content)
 
 else:
     st.info("Please upload a PDF file first.")

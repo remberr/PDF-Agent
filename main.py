@@ -8,82 +8,147 @@ from utils.vectorstore import create_vectorstore
 from utils.deepseek_client import ask_deepseek
 
 
+# Page title
 st.title("📄 PDF Agent")
 
+
+# Initialize session state
+# These variables will be kept while Streamlit is running
+if "all_docs" not in st.session_state:
+    st.session_state.all_docs = []
+
+if "loaded_pdfs" not in st.session_state:
+    st.session_state.loaded_pdfs = []
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "vectorstore" not in st.session_state:
+    st.session_state.vectorstore = None
+
+
+# Upload PDFs
 uploaded_files = st.file_uploader(
     "Upload PDF",
     type=["pdf"],
     accept_multiple_files=True
 )
 
-if uploaded_files:
-    st.success(f"Uploaded: {len(uploaded_files)} PDF file(s).")
 
-    all_docs = []
-    
+# Read newly uploaded PDFs
+if uploaded_files:
+
     for uploaded_file in uploaded_files:
+
+        # Skip PDF if it has already been loaded
+        if uploaded_file.name in st.session_state.loaded_pdfs:
+            continue
+
+        # Save uploaded PDF as a temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
             tmp_file.write(uploaded_file.getbuffer())
             pdf_path = tmp_file.name
 
+        # Load PDF content
         loader = PyPDFLoader(pdf_path)
         docs = loader.load()
 
+        # Save PDF filename in metadata
         for doc in docs:
             doc.metadata["source"] = uploaded_file.name
 
-        all_docs.extend(docs)
+        # Save documents into session state
+        st.session_state.all_docs.extend(docs)
 
-    st.write(f"Total Pages: {len(all_docs)}")
+        # Record loaded PDF filename
+        st.session_state.loaded_pdfs.append(uploaded_file.name)
 
-    chunks = split_documents(all_docs)
-    st.write(f"Total Chunks: {len(chunks)}")
+        st.success(f"Loaded PDF: {uploaded_file.name}")
 
-    file_names = [file.name for file in uploaded_files]
+    # Rebuild vectorstore after adding new PDFs
+    if st.session_state.all_docs:
 
-    if (
-        "vectorstore" not in st.session_state
-        or st.session_state.get("uploaded_files") != file_names
-    ):
-        with st.spinner("Creating vector store..."):
+        with st.spinner("Building vectorstore..."):
+
+            chunks = split_documents(st.session_state.all_docs)
             st.session_state.vectorstore = create_vectorstore(chunks)
-            st.session_state.uploaded_files = file_names
         
-        st.success("Vector store created successfully!")
+        st.success("Vectorstore built successfully!")
+
+
+# Display loaded PDFs
+st.subheader("Loaded PDFs")
+
+if st.session_state.loaded_pdfs:
+
+    for pdf_name in st.session_state.loaded_pdfs:
+        st.write(f"✅ {pdf_name}")
+
+    st.write(f"Total PDFs loaded: {len(st.session_state.loaded_pdfs)}")
+
+else:
+    st.info("No PDF has been loaded yet.")
+
+
+# Clear all PDFs and chat history
+if st.button("Clear all PDFs and chat history"):
+
+    st.session_state.all_docs = []
+    st.session_state.loaded_pdfs = []
+    st.session_state.messages = []
+    st.session_state.vectorstore = None
+
+    st.success("All PDFs and chat history have been cleared.")
+
+    st.rerun()
+
+
+# Display previous chat messages
+for message in st.session_state.messages:
+
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+
+# Chat input
+question = st.chat_input("Ask a question about the PDFs")
+
+if question:
+
+    # Check whether vectorstore exists
+    if st.session_state.vectorstore is None:
+
+        st.warning("Please upload a PDF file first.")
+    
     else:
-        st.success("Using cached vector store.")
 
-    vectorstore = st.session_state.vectorstore
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    question = st.chat_input("Ask a question about the PDFs")
-
-    if question:
+        # Save user question
         st.session_state.messages.append({"role": "user", "content": question})
-        results = vectorstore.similarity_search(question, k=3)
 
+        # Display user question
         with st.chat_message("user"):
             st.markdown(question)
         
-        results = vectorstore.similarity_search(question, k=3)
+        # Retrieve top 3 relevant chunks from FAISS
+        results = st.session_state.vectorstore.similarity_search(question, k=3)
 
+        # Generate answer with DeepSeek
         answer = ask_deepseek(
             question,
             results,
             st.session_state.messages
         )
 
+        # Display assistant answer
         with st.chat_message("assistant"):
+
             st.markdown(answer)
 
+            # Display source chunks
             with st.expander("Sources"):
+
                 for i, doc in enumerate(results):
+
                     source = doc.metadata.get("source", "Unknown Source")
                     page = doc.metadata.get("page", 0) + 1
                     
@@ -92,7 +157,5 @@ if uploaded_files:
                     st.write(f"Page: {page}")
                     st.write(doc.page_content[:800])
         
+        # Save assistant answer
         st.session_state.messages.append({"role": "assistant", "content": answer})
-
-else:
-    st.info("Please upload a PDF file first.")

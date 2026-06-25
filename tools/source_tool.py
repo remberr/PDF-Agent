@@ -1,17 +1,18 @@
 def source_tool(question, vectorstore):
     """
-    Retrieve source documents related
-    to the user's question.
+    Source Tool
 
-    Parameters:
-        question: User's question
-        vectorstore: FAISS vector database
-
-    Returns:
-        results: Retrieved document chunks
+    Responsibilities:
+    - Retrieve source documents related to the user's question.
+    - Return retrieved documents only.
+    - No LLM reasoning is performed here.
     """
 
     # Retrieve the most relevant chunks
-    # from the vector database
-    results = vectorstore.similarity_search(question, k=3)
+    results = vectorstore.similarity_search(
+        question,
+        k=3
+    )
+
+    # Return retrieved documents only
     return results

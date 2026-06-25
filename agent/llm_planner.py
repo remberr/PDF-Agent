@@ -15,47 +15,69 @@ client = OpenAI(
 
 def plan_steps_with_llm(question):
     """
-    Use DeepSeek to decide which tools should be used.
+    Planner Agent
+
+    Responsibilities:
+    - Understand the user's request.
+    - Decide which specialist agents should collaborate.
+    - Return an ordered list of agent steps.
     """
 
     prompt = f"""
-You are a tool planner for a PDF Agent.
+You are the Planner Agent of a Multi-Agent PDF Analysis System.
 
-Available tools:
-- qa: answer questions based on PDFs
-- source: find relevant source pages
-- summary: summarize uploaded PDFs
-- keyword: extract keywords from PDFs
-- compare: compare multiple PDFs
+Available specialist agents:
+
+- qa
+  Use this agent for normal PDF question answering.
+
+- source
+  Use this agent when the user asks for sources, citations,
+  evidence, references, or page numbers.
+
+- summary
+  Use this agent when the user asks to summarize PDFs.
+
+- keyword
+  Use this agent when the user asks for keywords,
+  key concepts, or terminology.
+
+- compare
+  Use this agent when the user asks to compare PDFs,
+  explain differences, or analyze similarities.
 
 User question:
 {question}
 
-Return ONLY valid JSON.
+Return ONLY a valid JSON array of agent step names.
 
 Examples:
 ["qa"]
 ["summary"]
-["summary","keyword"]
-["compare","summary"]
-["compare","source"]
-
-Never explain your reasoning.
-Never return markdown.
-Never return code blocks.
+["summary", "keyword"]
+["compare", "source"]
+["compare", "summary"]
 
 Rules:
+- Return only JSON.
+- Do not return markdown.
+- Do not wrap the JSON in code blocks.
+- Do not explain your reasoning.
+- Use only these step names: qa, source, summary, keyword, compare.
 - If the user asks a normal question, return ["qa"].
-- If the user asks to summarize, include "summary".
-- If the user asks for keywords, include "keyword".
-- If the user asks to compare documents, include "compare".
-- If the user asks for source, page, citation, or evidence, include "source".
+- If multiple tasks are requested, return multiple steps in a logical order.
 """
 
     response = client.chat.completions.create(
-        model="deepseek-chat",
+        model=os.getenv(
+            "DEEPSEEK_MODEL",
+            "deepseek-v4-flash"
+        ),
         messages=[
-            {"role": "user", "content": prompt}
+            {
+                "role": "user",
+                "content": prompt
+            }
         ],
         temperature=0
     )
@@ -64,10 +86,11 @@ Rules:
 
     try:
         steps = json.loads(content)
+
     except json.JSONDecodeError:
         steps = ["qa"]
 
-    allowed_tools = {
+    allowed_agents = {
         "qa",
         "source",
         "summary",
@@ -77,7 +100,7 @@ Rules:
 
     steps = [
         step for step in steps
-        if step in allowed_tools
+        if step in allowed_agents
     ]
 
     if not steps:

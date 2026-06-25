@@ -3,20 +3,24 @@ from langgraph.graph import StateGraph, END
 from agent.state import AgentState
 from agent.llm_planner import plan_steps_with_llm
 
-from tools.pdf_qa_tool import pdf_qa_tool
-from tools.source_tool import source_tool
-from tools.pdf_summary_tool import pdf_summary_tool
-from tools.keyword_tool import keyword_tool
-from tools.compare_tool import compare_tool
+from agent.qa_agent import qa_agent
+from agent.source_agent import source_agent
+from agent.summary_agent import summary_agent
+from agent.keyword_agent import keyword_agent
+from agent.compare_agent import compare_agent
+from agent.reviewer_agent import reviewer_agent
 
-from utils.final_synthesizer import synthesize_final_answer
 
-
-def router_node(state: AgentState):
+def planner_node(state: AgentState):
     """
-    Plan one or more tool steps based on the user's question.
+    Planner Agent node.
+
+    Responsibilities:
+    - Analyze the user's question.
+    - Decide which specialist agents should be executed.
     """
 
+    # Plan one or more agent steps
     steps = plan_steps_with_llm(state["question"])
 
     return {
@@ -28,9 +32,13 @@ def router_node(state: AgentState):
     }
 
 
-def tool_node(state: AgentState):
+def specialist_agent_node(state: AgentState):
     """
-    Execute the current tool step.
+    Specialist Agent node.
+
+    Responsibilities:
+    - Execute the current specialist agent.
+    - Collect the agent's answer and retrieved documents.
     """
 
     step = state["current_step"]
@@ -38,67 +46,63 @@ def tool_node(state: AgentState):
     vectorstore = state["vectorstore"]
     chat_history = state["chat_history"]
 
-    # Do not modify the original state list directly
+    # Copy state values to avoid modifying
+    # the original lists directly
     answers = list(state.get("answers", []))
     results = list(state.get("results", []))
 
     if step == "qa":
-        answer, docs = pdf_qa_tool(
+
+        output = qa_agent(
             question,
             vectorstore,
             chat_history
         )
-
-        answers.append(answer)
-        results.extend(docs)
 
     elif step == "source":
-        docs = source_tool(
-            question,
-            vectorstore
-        )
 
-        answers.append(
-            "I found the following relevant sources in the PDFs."
+        output = source_agent(
+            vectorstore,
+            chat_history
         )
-
-        results.extend(docs)
 
     elif step == "summary":
-        answer, docs = pdf_summary_tool(
+
+        output = summary_agent(
             vectorstore,
             chat_history
         )
-
-        answers.append(
-            "## Summary\n" + answer
-        )
-
-        results.extend(docs)
 
     elif step == "keyword":
-        answer, docs = keyword_tool(
+
+        output = keyword_agent(
             vectorstore,
             chat_history
         )
-
-        answers.append(
-            "## Keywords\n" + answer
-        )
-
-        results.extend(docs)
 
     elif step == "compare":
-        answer, docs = compare_tool(
+
+        output = compare_agent(
             vectorstore,
             chat_history
         )
 
-        answers.append(
-            "## Comparison\n" + answer
-        )
+    else:
 
-        results.extend(docs)
+        output = {
+            "agent": "Unknown Agent",
+            "status": "failed",
+            "answer": f"Unknown step: {step}",
+            "results": []
+        }
+
+    # Save specialist agent answer
+    answers.append(
+        f"## {output['agent']}\n{output['answer']}"
+    )
+
+    # Save retrieved documents
+    results.extend(output.get("results", []))
 
     return {
         "answers": answers,
@@ -108,7 +112,11 @@ def tool_node(state: AgentState):
 
 def next_step_node(state: AgentState):
     """
-    Move to the next planned step.
+    Workflow Controller node.
+
+    Responsibilities:
+    - Move to the next planned agent step.
+    - Mark the workflow as complete when no steps remain.
     """
 
     steps = state["steps"]
@@ -118,6 +126,7 @@ def next_step_node(state: AgentState):
     next_index = current_index + 1
 
     if next_index < len(steps):
+
         return {
             "current_step": steps[next_index]
         }
@@ -129,18 +138,23 @@ def next_step_node(state: AgentState):
 
 def should_continue(state: AgentState):
     """
-    Decide whether the graph should continue or finish.
+    Decide whether to continue executing specialist agents
+    or move to the Reviewer Agent.
     """
 
     if state["current_step"] == "final":
-        return "end"
+        return "review"
 
     return "continue"
 
 
-def final_node(state: AgentState):
+def review_node(state: AgentState):
     """
-    Synthesize all tool outputs into the final answer.
+    Reviewer Agent node.
+
+    Responsibilities:
+    - Review all specialist agent outputs.
+    - Synthesize a final answer.
     """
 
     question = state["question"]
@@ -148,12 +162,17 @@ def final_node(state: AgentState):
     answers = state.get("answers", [])
 
     if answers:
-        final_answer = synthesize_final_answer(
+
+        output = reviewer_agent(
             question,
             steps,
             answers
         )
+
+        final_answer = output["answer"]
+
     else:
+
         final_answer = "No answer was generated."
 
     return {
@@ -163,30 +182,36 @@ def final_node(state: AgentState):
 
 def build_pdf_agent_graph():
     """
-    Build and compile the LangGraph PDF Agent.
+    Build and compile the LangGraph Multi-Agent PDF system.
     """
 
     graph = StateGraph(AgentState)
 
-    graph.add_node("router", router_node)
-    graph.add_node("tool", tool_node)
-    graph.add_node("next_step", next_step_node)
-    graph.add_node("final", final_node)
+    # Add graph nodes
+    graph.add_node("planner_agent", planner_node)
+    graph.add_node("specialist_agent", specialist_agent_node)
+    graph.add_node("workflow_controller", next_step_node)
+    graph.add_node("reviewer_agent", review_node)
 
-    graph.set_entry_point("router")
+    # Set graph entry point
+    graph.set_entry_point("planner_agent")
 
-    graph.add_edge("router", "tool")
-    graph.add_edge("tool", "next_step")
+    # Define workflow edges
+    graph.add_edge("planner_agent", "specialist_agent")
+    graph.add_edge("specialist_agent", "workflow_controller")
 
+    # Conditional edge:
+    # Continue executing agents or move to reviewer
     graph.add_conditional_edges(
-        "next_step",
+        "workflow_controller",
         should_continue,
         {
-            "continue": "tool",
-            "end": "final"
+            "continue": "specialist_agent",
+            "review": "reviewer_agent"
         }
     )
 
-    graph.add_edge("final", END)
+    # End after reviewer agent
+    graph.add_edge("reviewer_agent", END)
 
     return graph.compile()

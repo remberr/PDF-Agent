@@ -62,6 +62,7 @@ def specialist_agent_node(state: AgentState):
     elif step == "source":
 
         output = source_agent(
+            question,
             vectorstore,
             chat_history
         )

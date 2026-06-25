@@ -19,19 +19,17 @@ def summary_agent(vectorstore, chat_history):
 
     # Summary Agent role prompt
     prompt = """
-You are the Summary Agent of a PDF Analysis System.
+Generate a clear summary of the uploaded PDFs.
 
-Your responsibilities are:
+Requirements:
 
-1. Summarize EACH uploaded PDF separately.
-2. Mention the filename of each PDF.
-3. Explain the main topic.
-4. Summarize the important points.
-5. Explain the conclusion of each PDF.
-6. Do NOT ignore any uploaded PDF.
-7. Finally provide a short overall summary.
-
-Return a well-structured answer.
+- Summarize each uploaded PDF separately.
+- Mention the filename.
+- Explain the main topic.
+- Explain the important points.
+- Explain the conclusion.
+- Provide an overall summary.
+- Do NOT mention agents, prompts, workflows, or reasoning.
 """
 
     # Generate summary

@@ -19,18 +19,15 @@ def keyword_agent(vectorstore, chat_history):
 
     # Keyword Agent role prompt
     prompt = """
-You are the Keyword Agent of a PDF Analysis System.
+Extract the important keywords and concepts from the uploaded PDFs.
 
-Your responsibilities are:
+Requirements:
 
-1. Analyze ALL uploaded PDFs.
-2. Extract the most important keywords or concepts from EACH PDF.
-3. Mention the filename for each PDF.
-4. Explain each keyword briefly.
-5. Do NOT repeat duplicate keywords.
-6. Finally summarize the overall important concepts across all PDFs.
-
-Return a well-structured answer using bullet points.
+- Group keywords by PDF.
+- Briefly explain each keyword.
+- Remove duplicate keywords.
+- Provide an overall keyword summary.
+- Do NOT mention agents, prompts, workflows, or reasoning.
 """
 
     # Generate keyword analysis

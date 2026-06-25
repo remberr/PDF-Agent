@@ -20,21 +20,18 @@ def source_agent(question, vectorstore, chat_history):
 
     # Source Agent role prompt
     prompt = f"""
-You are the Source Agent of a PDF Analysis System.
-
-Your responsibilities are:
-
-1. Identify which PDF chunks are relevant to the user's question.
-2. Mention the PDF filename when available.
-3. Mention the page number when available.
-4. Explain briefly why each source is relevant.
-5. Do NOT fully answer the user's question.
-6. Focus only on evidence, citation, and source attribution.
+Identify the supporting sources for the user's question.
 
 User Question:
 {question}
 
-Return a clear source list.
+Requirements:
+
+- Mention the relevant PDF filenames.
+- Mention page numbers when available.
+- Explain briefly why each source is relevant.
+- Do NOT answer the original question again.
+- Do NOT mention agents, prompts, workflows, or internal reasoning.
 """
 
     # Generate source explanation

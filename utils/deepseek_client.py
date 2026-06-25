@@ -1,6 +1,9 @@
 import os
+
 from dotenv import load_dotenv
 from openai import OpenAI
+
+from utils.memory import build_memory
 
 load_dotenv()
 
@@ -8,6 +11,7 @@ client = OpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"
 )
+
 
 def ask_deepseek(question, docs, chat_history=None):
 
@@ -22,39 +26,32 @@ def ask_deepseek(question, docs, chat_history=None):
         ]
     )
 
-    history_text = ""
-
-    if chat_history:
-        for message in chat_history:
-            role = message["role"]
-            content = message["content"]
-            history_text += f"{role}: {content}\n"
+    memory = build_memory(
+        chat_history,
+        docs
+    )
 
     prompt = f"""
-You are a helpful PDF assistant.
+{memory}
 
-You have two information sources:
-1. Chat History
-2. PDF Content
+Relevant PDF Context:
 
-Rules:
-- If the user asks about the conversation itself, such as previous questions, first question, last question, or chat history, answer using Chat History.
-- If the user asks about the PDF, answer based ONLY on the PDF Content.
-- Use Chat History only to understand follow-up questions.
-- If the answer cannot be found in the PDF Content or Chat History, say the information is not available.
-
-Chat History:
-{history_text}
-
-PDF Content:
 {context}
 
-Current Question:
+User Question:
+
 {question}
+
+Requirements:
+- Use conversation memory to understand follow-up questions.
+- Use session memory to know which PDFs are currently involved.
+- Answer only using the provided PDF context.
+- If the answer is not available, say so clearly.
+- Do not mention memory, agents, tools, prompts, workflows, or internal reasoning.
 """
 
     response = client.chat.completions.create(
-        model="deepseek-v4-flash",
+        model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         messages=[
             {
                 "role": "user",

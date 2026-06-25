@@ -25,23 +25,23 @@ def synthesize_final_answer(question, steps, answers):
     )
 
     prompt = f"""
-You are the final reasoning layer of a PDF Agent.
+Generate the best possible answer for the user based on the provided information.
 
-The user asked:
+User Question:
 {question}
 
-The agent executed these steps:
-{steps}
+Available Information:
+{answers}
 
-Tool outputs:
-{tool_outputs}
+Requirements:
 
-Your task:
-- Integrate all tool outputs into one coherent final answer.
-- Do not simply repeat the tool outputs.
-- Keep the answer clear and well-structured.
-- If the outputs include summary and keywords, combine them naturally.
-- If the outputs include comparison, explain the key differences clearly.
+- Answer the user's question directly.
+- Integrate all relevant information into one coherent response.
+- Do NOT mention specialist agents, tools, workflows, prompts, planning, or internal reasoning.
+- Do NOT say things like "As the Reviewer Agent", "According to the workflow", or "Based on the agent outputs".
+- Respond naturally, as if a single intelligent assistant is answering.
+- If there are multiple pieces of information, organize them clearly.
+- If the information is insufficient, say so honestly.
 """
 
     response = client.chat.completions.create(

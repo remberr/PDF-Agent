@@ -20,19 +20,18 @@ def qa_agent(question, vectorstore, chat_history):
 
     # QA Agent role prompt
     prompt = f"""
-You are the QA Agent of a PDF Analysis System.
-
-Your responsibilities are:
-
-1. Answer the user's question based only on the provided PDF content.
-2. Use the retrieved evidence carefully.
-3. Do not invent information that is not in the PDFs.
-4. If the answer is not available in the PDF content, say so clearly.
-5. Keep the answer clear, direct, and useful.
-6. Mention PDF filenames or pages if they are relevant.
+Answer the user's question using ONLY the provided PDF content.
 
 User Question:
 {question}
+
+Requirements:
+
+- Use only the provided information.
+- If the answer is unavailable, state that clearly.
+- Do not invent facts.
+- Respond naturally.
+- Do NOT mention agents, tools, prompts, workflows, or internal reasoning.
 """
 
     # Generate answer using DeepSeek

@@ -18,19 +18,17 @@ def compare_agent(vectorstore, chat_history):
 
     # Compare Agent role prompt
     prompt = """
-You are the Compare Agent of a PDF Analysis System.
+Compare the uploaded PDFs.
 
-Your responsibilities are:
+Requirements:
 
-1. Compare EACH uploaded PDF separately.
-2. Mention the filename of each PDF.
-3. Identify the main topic of each PDF.
-4. Compare their methods, viewpoints, results, and conclusions.
-5. Explain similarities and differences clearly.
-6. Do NOT ignore any uploaded PDF if its content appears in the context.
-7. Finally provide an overall comparison.
-
-Return the result in a clear structured format.
+- Compare the topics.
+- Compare the methods.
+- Compare the conclusions.
+- Explain similarities.
+- Explain differences.
+- Mention filenames.
+- Do NOT mention agents, prompts, workflows, or reasoning.
 """
 
     # Generate comparison using DeepSeek

@@ -1,34 +1,15 @@
-import os
-
-from dotenv import load_dotenv
-from openai import OpenAI
-
+from utils.citations import format_docs_with_citations
+from utils.llm_client import LLMClientError, chat_with_deepseek
 from utils.memory import build_memory
 
-load_dotenv()
 
-client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url="https://api.deepseek.com"
-)
+def ask_deepseek(question, docs, chat_history=None, loaded_pdfs=None):
 
-
-def ask_deepseek(question, docs, chat_history=None):
-
-    context = "\n\n".join(
-        [
-            (
-                f"[PDF: {doc.metadata.get('source', 'Unknown Source')}]\n"
-                f"[Page: {doc.metadata.get('page', 0) + 1}]\n"
-                f"{doc.page_content}"
-            )
-            for doc in docs
-        ]
-    )
+    context = format_docs_with_citations(docs)
 
     memory = build_memory(
         chat_history,
-        docs
+        loaded_pdfs
     )
 
     prompt = f"""
@@ -46,19 +27,23 @@ Requirements:
 - Use conversation memory to understand follow-up questions.
 - Use session memory to know which PDFs are currently involved.
 - Answer only using the provided PDF context.
+- Cite supporting evidence with citation IDs such as [paper.pdf, page 3].
+- Include citations for factual claims whenever the answer uses retrieved PDF content.
 - If the answer is not available, say so clearly.
 - Do not mention memory, agents, tools, prompts, workflows, or internal reasoning.
 """
 
-    response = client.chat.completions.create(
-        model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0
-    )
+    try:
+        return chat_with_deepseek(prompt)
 
-    return response.choices[0].message.content
+    except LLMClientError:
+        if context:
+            return (
+                "The language model is temporarily unavailable, but relevant "
+                "PDF context was retrieved. Please try again in a moment."
+            )
+
+        return (
+            "The language model is temporarily unavailable, and no relevant "
+            "PDF context could be retrieved."
+        )

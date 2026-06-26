@@ -2,7 +2,7 @@ from tools.compare_tool import compare_tool
 from utils.deepseek_client import ask_deepseek
 
 
-def compare_agent(vectorstore, chat_history):
+def compare_agent(vectorstore, chat_history, loaded_pdfs=None):
     """
     Compare Agent
 
@@ -35,7 +35,8 @@ Requirements:
     answer = ask_deepseek(
         prompt,
         docs,
-        chat_history
+        chat_history,
+        loaded_pdfs
     )
 
     return {

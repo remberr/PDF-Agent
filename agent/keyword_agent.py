@@ -2,7 +2,7 @@ from tools.keyword_tool import keyword_tool
 from utils.deepseek_client import ask_deepseek
 
 
-def keyword_agent(vectorstore, chat_history):
+def keyword_agent(vectorstore, chat_history, loaded_pdfs=None):
     """
     Keyword Agent
 
@@ -34,7 +34,8 @@ Requirements:
     answer = ask_deepseek(
         prompt,
         docs,
-        chat_history
+        chat_history,
+        loaded_pdfs
     )
 
     return {

@@ -1,16 +1,6 @@
-import os
 import json
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-
-load_dotenv()
-
-client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url="https://api.deepseek.com"
-)
+from utils.llm_client import LLMClientError, chat_with_deepseek
 
 
 def plan_steps_with_llm(question):
@@ -68,26 +58,19 @@ Rules:
 - If multiple tasks are requested, return multiple steps in a logical order.
 """
 
-    response = client.chat.completions.create(
-        model=os.getenv(
-            "DEEPSEEK_MODEL",
-            "deepseek-v4-flash"
-        ),
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0
-    )
+    try:
+        content = chat_with_deepseek(prompt).strip()
 
-    content = response.choices[0].message.content.strip()
+    except LLMClientError:
+        return ["qa"]
 
     try:
         steps = json.loads(content)
 
     except json.JSONDecodeError:
+        steps = ["qa"]
+
+    if not isinstance(steps, list):
         steps = ["qa"]
 
     allowed_agents = {

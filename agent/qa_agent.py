@@ -2,7 +2,7 @@ from tools.pdf_qa_tool import pdf_qa_tool
 from utils.deepseek_client import ask_deepseek
 
 
-def qa_agent(question, vectorstore, chat_history):
+def qa_agent(question, vectorstore, chat_history, loaded_pdfs=None):
     """
     QA Agent
 
@@ -38,7 +38,8 @@ Requirements:
     answer = ask_deepseek(
         prompt,
         docs,
-        chat_history
+        chat_history,
+        loaded_pdfs
     )
 
     return {

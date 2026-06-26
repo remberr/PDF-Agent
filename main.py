@@ -1,3 +1,4 @@
+import os
 import tempfile
 
 import streamlit as st
@@ -7,10 +8,11 @@ from utils.text_splitter import split_documents
 from utils.vectorstore import create_vectorstore
 
 from agent.graph_agent import build_pdf_agent_graph
+from agent.state import create_initial_agent_state, empty_collaboration_notes
 
 
 # Page title
-st.title("📄 PDF Agent")
+st.title("PDF Agent")
 
 
 # Initialize session state
@@ -27,6 +29,27 @@ if "messages" not in st.session_state:
 if "vectorstore" not in st.session_state:
     st.session_state.vectorstore = None
 
+if "temp_pdf_paths" not in st.session_state:
+    st.session_state.temp_pdf_paths = []
+
+
+def cleanup_temp_pdfs():
+    """
+    Remove temporary PDF files created during upload processing.
+    """
+
+    remaining_paths = []
+
+    for pdf_path in st.session_state.get("temp_pdf_paths", []):
+        try:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+
+        except OSError:
+            remaining_paths.append(pdf_path)
+
+    st.session_state.temp_pdf_paths = remaining_paths
+
 
 def display_sources(results):
     """
@@ -36,16 +59,85 @@ def display_sources(results):
     if results:
 
         with st.expander("Sources"):
+            seen_sources = set()
 
             for i, doc in enumerate(results):
 
                 source = doc.metadata.get("source", "Unknown Source")
                 page = doc.metadata.get("page", 0) + 1
+                citation_id = doc.metadata.get(
+                    "citation_id",
+                    f"{source}, page {page}"
+                )
+                source_key = (citation_id, source, page)
 
-                st.markdown(f"**Source {i + 1}**")
-                st.write(f"PDF: {source}")
-                st.write(f"Page: {page}")
+                if source_key in seen_sources:
+                    continue
+
+                seen_sources.add(source_key)
+
+                st.markdown(f"**[{citation_id}]**")
                 st.write(doc.page_content[:800])
+
+
+def display_workflow_trace(steps, collaboration_notes=None, revision_count=0):
+    """
+    Display the agent workflow trace for a completed response.
+    """
+
+    collaboration_notes = collaboration_notes or {}
+
+    if not steps:
+        return
+
+    with st.expander("Workflow trace"):
+
+        st.markdown("**Planned specialist steps**")
+        st.caption(" -> ".join(steps))
+
+        if len(steps) <= 1:
+            st.info("Single-agent request: skipped collaboration and retry.")
+
+        else:
+            st.markdown("**Collaboration Agent**")
+
+            status = collaboration_notes.get("status", "not_run")
+            st.write(f"Status: {status}")
+
+            issues = collaboration_notes.get("issues", [])
+            missing_information = collaboration_notes.get(
+                "missing_information",
+                []
+            )
+            recommendations = collaboration_notes.get("recommendations", [])
+            needs_revision = collaboration_notes.get("needs_revision", False)
+            next_steps = collaboration_notes.get("next_steps", [])
+
+            if issues:
+                st.write("Issues:")
+                for issue in issues:
+                    st.write(f"- {issue}")
+
+            if missing_information:
+                st.write("Missing information:")
+                for item in missing_information:
+                    st.write(f"- {item}")
+
+            if recommendations:
+                st.write("Recommendations:")
+                for recommendation in recommendations:
+                    st.write(f"- {recommendation}")
+
+            st.markdown("**Revision Controller**")
+            st.write(f"Revision attempts: {revision_count}")
+
+            if needs_revision and next_steps:
+                st.write(
+                    "Requested retry steps: "
+                    + " -> ".join(next_steps)
+                )
+            else:
+                st.write("No retry requested.")
 
 
 # Upload PDFs
@@ -72,23 +164,29 @@ if uploaded_files:
             tmp_file.write(uploaded_file.getbuffer())
             pdf_path = tmp_file.name
 
-        # Load PDF content
-        loader = PyPDFLoader(pdf_path)
-        docs = loader.load()
+        st.session_state.temp_pdf_paths.append(pdf_path)
 
-        # Save PDF filename in metadata
-        for doc in docs:
-            doc.metadata["source"] = uploaded_file.name
+        try:
+            # Load PDF content
+            loader = PyPDFLoader(pdf_path)
+            docs = loader.load()
 
-        # Save documents into session state
-        st.session_state.all_docs.extend(docs)
+            # Save PDF filename in metadata
+            for doc in docs:
+                doc.metadata["source"] = uploaded_file.name
 
-        # Record loaded PDF filename
-        st.session_state.loaded_pdfs.append(uploaded_file.name)
+            # Save documents into session state
+            st.session_state.all_docs.extend(docs)
 
-        new_pdf_loaded = True
+            # Record loaded PDF filename
+            st.session_state.loaded_pdfs.append(uploaded_file.name)
 
-        st.success(f"Loaded PDF: {uploaded_file.name}")
+            new_pdf_loaded = True
+
+            st.success(f"Loaded PDF: {uploaded_file.name}")
+
+        finally:
+            cleanup_temp_pdfs()
 
 # Rebuild vectorstore after adding new PDFs
 if st.session_state.all_docs and new_pdf_loaded:
@@ -107,7 +205,7 @@ st.subheader("Loaded PDFs")
 if st.session_state.loaded_pdfs:
 
     for pdf_name in st.session_state.loaded_pdfs:
-        st.write(f"✅ {pdf_name}")
+        st.write(f"- {pdf_name}")
 
     st.write(f"Total PDFs loaded: {len(st.session_state.loaded_pdfs)}")
 
@@ -118,10 +216,13 @@ else:
 # Clear all PDFs and chat history
 if st.button("Clear all PDFs and chat history"):
 
+    cleanup_temp_pdfs()
+
     st.session_state.all_docs = []
     st.session_state.loaded_pdfs = []
     st.session_state.messages = []
     st.session_state.vectorstore = None
+    st.session_state.temp_pdf_paths = []
 
     st.success("All PDFs and chat history have been cleared.")
 
@@ -135,16 +236,19 @@ for message in st.session_state.messages:
 
         st.markdown(message["content"])
 
-        # Display agent workflow
-        if (message["role"] == "assistant" and "steps" in message and message["steps"]):
-
-            st.caption(
-                "Agent steps: " + " → ".join(message["steps"]))
-
         # Display sources
         if (message["role"] == "assistant" and "sources" in message and message["sources"]):
 
             display_sources(message["sources"])
+
+        # Display detailed workflow trace
+        if (message["role"] == "assistant" and "steps" in message and message["steps"]):
+
+            display_workflow_trace(
+                message["steps"],
+                message.get("collaboration_notes", {}),
+                message.get("revision_count", 0)
+            )
 
 
 # Chat input
@@ -169,18 +273,28 @@ if question:
         # Build and run LangGraph PDF Agent
         pdf_agent_graph = build_pdf_agent_graph()
 
-        agent_result = pdf_agent_graph.invoke(
-            {
-                "question": question,
-                "steps": [],
-                "current_step": "",
+        try:
+            agent_result = pdf_agent_graph.invoke(
+                create_initial_agent_state(
+                    question,
+                    st.session_state.vectorstore,
+                    st.session_state.messages,
+                    st.session_state.loaded_pdfs
+                )
+            )
+
+        except Exception as exc:
+            agent_result = {
+                "answer": (
+                    "Sorry, the PDF Agent could not complete this request. "
+                    f"Error: {exc}"
+                ),
                 "answers": [],
-                "answer": "",
                 "results": [],
-                "vectorstore": st.session_state.vectorstore,
-                "chat_history": st.session_state.messages
+                "steps": [],
+                "collaboration_notes": empty_collaboration_notes(),
+                "revision_count": 0
             }
-        )
 
         # Get graph outputs
         answer = agent_result.get("answer", "")
@@ -194,18 +308,24 @@ if question:
 
         results = agent_result.get("results", [])
         steps = agent_result.get("steps", [])
+        collaboration_notes = agent_result.get("collaboration_notes", {})
+        revision_count = agent_result.get("revision_count", 0)
 
         # Display assistant answer
         with st.chat_message("assistant"):
 
             st.markdown(answer)
 
-            # Display agent workflow
-            if steps:
-                st.caption("Agent steps: " + " → ".join(steps))
-
             # Display source documents
             display_sources(results)
+
+            # Display detailed workflow trace
+            if steps:
+                display_workflow_trace(
+                    steps,
+                    collaboration_notes,
+                    revision_count
+                )
             
         # Save assistant answer with steps and sources
         st.session_state.messages.append(
@@ -213,6 +333,9 @@ if question:
                 "role": "assistant",
                 "content": answer,
                 "steps": steps,
+                "collaboration_notes": collaboration_notes,
+                "revision_count": revision_count,
                 "sources": results
             }
         )
+        

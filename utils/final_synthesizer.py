@@ -1,15 +1,4 @@
-import os
-
-from dotenv import load_dotenv
-from openai import OpenAI
-
-
-load_dotenv()
-
-client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url="https://api.deepseek.com"
-)
+from utils.llm_client import LLMClientError, chat_with_deepseek
 
 
 def synthesize_final_answer(question, steps, answers):
@@ -31,7 +20,7 @@ User Question:
 {question}
 
 Available Information:
-{answers}
+{tool_outputs}
 
 Requirements:
 
@@ -44,15 +33,8 @@ Requirements:
 - If the information is insufficient, say so honestly.
 """
 
-    response = client.chat.completions.create(
-        model="deepseek-v4-flash",
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0
-    )
+    try:
+        return chat_with_deepseek(prompt)
 
-    return response.choices[0].message.content
+    except LLMClientError:
+        return "\n\n".join(answers)

@@ -2,7 +2,7 @@ from tools.pdf_summary_tool import pdf_summary_tool
 from utils.deepseek_client import ask_deepseek
 
 
-def summary_agent(vectorstore, chat_history):
+def summary_agent(vectorstore, chat_history, loaded_pdfs=None):
     """
     Summary Agent
 
@@ -36,7 +36,8 @@ Requirements:
     answer = ask_deepseek(
         prompt,
         docs,
-        chat_history
+        chat_history,
+        loaded_pdfs
     )
 
     return {

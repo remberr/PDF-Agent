@@ -8,20 +8,10 @@ Responsibilities:
 - Provide unified memory context for all agents.
 """
 
-import os
 import hashlib
 from collections import OrderedDict
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
-
-load_dotenv()
-
-client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url="https://api.deepseek.com"
-)
+from utils.llm_client import LLMClientError, chat_with_deepseek
 
 _memory_cache = {}
 
@@ -102,38 +92,29 @@ Previous Conversation:
 {conversation_text}
 """
 
-    response = client.chat.completions.create(
-        model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0
-    )
+    try:
+        summary = chat_with_deepseek(prompt)
 
-    summary = response.choices[0].message.content
+    except LLMClientError:
+        return "Conversation summary is temporarily unavailable."
 
     _memory_cache[conversation_hash] = summary
 
     return summary
 
 
-def build_session_memory(docs):
+def build_session_memory(loaded_pdfs):
     """
     Build memory about uploaded PDFs.
     """
 
-    if not docs:
+    if not loaded_pdfs:
         return "No PDF context available."
 
     pdfs = OrderedDict()
 
-    for doc in docs:
-
-        source = doc.metadata.get("source", "Unknown PDF")
-        pdfs[source] = True
+    for pdf_name in loaded_pdfs:
+        pdfs[pdf_name] = True
 
     lines = ["Current uploaded PDFs:"]
 
@@ -143,7 +124,7 @@ def build_session_memory(docs):
     return "\n".join(lines)
 
 
-def build_memory(chat_history, docs):
+def build_memory(chat_history, loaded_pdfs=None):
     """
     Build complete memory for agents.
     """
@@ -157,7 +138,7 @@ def build_memory(chat_history, docs):
     )
 
     session_memory = build_session_memory(
-        docs
+        loaded_pdfs
     )
 
     return f"""

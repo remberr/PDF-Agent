@@ -1,302 +1,377 @@
-# 📄 Multi-Agent PDF Analysis System
+# Multi-Agent PDF Analysis System
 
-A LangGraph-based Multi-Agent PDF Analysis System powered by DeepSeek, featuring dynamic LLM planning, Retrieval-Augmented Generation (RAG), conversation memory, and specialized AI agents for intelligent PDF understanding.
+A Streamlit and LangGraph based PDF analysis application powered by DeepSeek. The system combines Retrieval-Augmented Generation (RAG), dynamic agent planning, conversation memory, multi-agent collaboration, and lightweight reflection/retry to answer questions over one or more uploaded PDFs.
 
----
+This project is designed as a practical AI engineering portfolio project. It focuses on clear agent responsibilities, observable workflow traces, graceful error handling, and maintainable LLM client abstraction.
 
-## ✨ Features
+## Features
 
-- 🤖 Multi-Agent Architecture
-- 🧠 LLM Planner for Dynamic Agent Selection
-- 📚 Retrieval-Augmented Generation (RAG)
-- 💬 Conversation Memory Manager
-- 📄 Multi-PDF Analysis
-- 🔍 Source Citation
-- 📝 PDF Summarization
-- 🔑 Keyword Extraction
-- 📊 Cross-PDF Comparison
-- ❓ PDF Question Answering
-- 🔄 Reviewer Agent for Final Answer Synthesis
-- 🌐 Streamlit Web Interface
+- Upload and analyze one or more PDF files
+- Ask questions grounded in retrieved PDF content
+- Summarize documents
+- Extract keywords and key concepts
+- Compare multiple PDFs
+- Retrieve supporting sources and page references
+- Add stable citation IDs such as `[paper.pdf, page 3]` for retrieved PDF evidence
+- Maintain recent conversation and summarized long-term chat context
+- Dynamically select specialist agents with an LLM planner
+- Coordinate multi-agent outputs with a Collaboration Agent
+- Use lightweight reflection/retry when important information is missing
+- Synthesize final answers with a Reviewer Agent
+- Display workflow traces in the Streamlit UI
+- Centralize DeepSeek client configuration and error handling
 
----
-
-## 🏗️ System Architecture
+## Architecture
 
 ```text
-                     User
-                      │
-                      ▼
-               Memory Manager
-        ┌────────────┼────────────┐
-        │            │            │
-        ▼            ▼            ▼
-Conversation   Session Memory   Recent Memory
-Summary Memory
-                      │
-                      ▼
-               Planner Agent
-                      │
-                      ▼
-        ───────────────────────────────
-             Specialist Agents
-        ───────────────────────────────
-
-        • QA Agent
-        • Summary Agent
-        • Keyword Agent
-        • Compare Agent
-        • Source Agent
-
-                      │
-                      ▼
-               Reviewer Agent
-                      │
-                      ▼
-                 Final Answer
+User Question
+    |
+    v
+Streamlit UI
+    |
+    v
+Session State
+    |
+    +-- uploaded PDFs
+    +-- chat history
+    |
+    v
+LangGraph Workflow
+    |
+    v
+Planner Agent
+    |
+    v
+Specialist Agent(s)
+    |
+    +-- Retriever -> FAISS PDF chunks
+    |
+    +-- Memory Manager -> conversation/session context
+    |
+    v
+LLM Prompt Context
+    |
+    v
+Workflow Controller
+    |
+    +-- single-agent output -------> Reviewer Agent ---> Final Answer
+    |
+    +-- multi-agent output --------> Collaboration Agent
+                                      |
+                                      v
+                                  Revision Controller
+                                      |
+                                      +-- retry needed ---> Specialist Agent(s)
+                                      |
+                                      +-- no retry -------> Reviewer Agent
+                                                              |
+                                                              v
+                                                         Final Answer
 ```
 
----
+The Memory Manager is not a standalone LangGraph node. It is one of the context sources used when specialist agents call the LLM. Retrieved PDF chunks and conversation/session memory are combined into the final prompt context.
 
-## 🚀 Technologies
+## Agent Design
 
-| Category | Technology |
-|-----------|------------|
-| Language | Python |
-| Framework | LangGraph |
-| UI | Streamlit |
-| LLM | DeepSeek-V4-Flash |
-| Embedding | OpenAI Embeddings |
-| Vector Database | FAISS |
-| Retrieval | RAG |
-| Workflow | LangGraph StateGraph |
-| Memory | Conversation Memory Manager |
-| Agents | Multi-Agent Architecture |
-| Planning | LLM Planner |
-| PDF Processing | LangChain PDF Loader |
-| Prompting | Prompt Engineering |
+### Planner Agent
 
----
-
-# 🤖 Multi-Agent Design
-
-## Planner Agent
-
-Responsible for understanding the user's request and dynamically selecting specialist agents.
+The Planner Agent analyzes the user request and returns an ordered list of specialist steps.
 
 Example:
 
 ```text
-User
-
-↓
-
-Compare these papers and summarize them
-
-↓
-
-Planner Agent
-
-↓
-
-["compare", "summary"]
+User: Compare these papers and provide sources.
+Planner: ["compare", "source"]
 ```
 
----
+Supported specialist steps:
 
-## Specialist Agents
+- `qa`
+- `source`
+- `summary`
+- `keyword`
+- `compare`
 
-### QA Agent
+### Specialist Agents
 
-- Answer user questions using uploaded PDFs.
+Each specialist agent owns one focused capability:
 
-### Summary Agent
+- `QA Agent`: answers user questions using retrieved PDF context
+- `Source Agent`: retrieves supporting sources, filenames, and page numbers
+- `Summary Agent`: generates document summaries
+- `Keyword Agent`: extracts important concepts and terminology
+- `Compare Agent`: compares multiple PDFs across topics, methods, findings, and conclusions
 
-- Generate structured summaries for each uploaded PDF.
+### Collaboration Agent
 
-### Keyword Agent
+The Collaboration Agent runs only when multiple specialist outputs are available. It coordinates agent outputs before final review.
 
-- Extract important keywords and concepts.
+It returns structured collaboration notes:
 
-### Compare Agent
+```python
+{
+    "answer": "...",
+    "issues": [...],
+    "missing_information": [...],
+    "recommendations": [...],
+    "needs_revision": false,
+    "next_steps": []
+}
+```
 
-- Compare multiple PDFs by topic, methodology, findings, and conclusions.
+The collaboration layer helps the system:
 
-### Source Agent
+- merge overlapping findings
+- detect contradictions
+- identify missing evidence
+- decide whether another specialist step is worth running
+- avoid unnecessary retry for simple single-agent requests
 
-- Retrieve evidence, filenames, page numbers, and supporting sources.
+### Revision Controller
 
----
+The Revision Controller reads the Collaboration Agent decision and controls retry behavior.
 
-## Reviewer Agent
+Current retry policy:
 
-Collect outputs from specialist agents and synthesize a coherent final response.
+```python
+MAX_REVISION_COUNT = 1
+```
 
----
+This keeps the workflow adaptive without allowing infinite loops.
 
-# 🧠 Memory Manager
+### Reviewer Agent
 
-The system includes a conversation memory manager for maintaining contextual understanding.
+The Reviewer Agent synthesizes specialist outputs and collaboration notes into one final answer for the user. It is responsible for final answer quality and natural presentation, not planning or retry decisions.
 
-### Conversation Summary Memory
+## Workflow Examples
 
-- Uses DeepSeek to summarize older conversations.
-
-### Recent Conversation Memory
-
-- Maintains recent dialogue for follow-up questions.
-
-### Session Memory
-
-- Tracks currently uploaded PDFs.
-
-### Cached Memory
-
-- Caches conversation summaries to reduce unnecessary LLM calls.
-
----
-
-## 🔄 Workflow
+### Single-Agent Question
 
 ```text
-User Question
-        │
-        ▼
-Planner Agent
-        │
-        ▼
-Specialist Agent(s)
-        │
-        ▼
+User asks a direct question
+    |
+Planner -> ["qa"]
+    |
+QA Agent
+    |
 Reviewer Agent
-        │
-        ▼
+    |
 Final Answer
 ```
 
----
+The system skips collaboration and retry for simple requests to reduce latency and token cost.
 
-## 📚 Supported Tasks
+### Multi-Agent Question With Collaboration
 
-- Ask questions about uploaded PDFs
-- Summarize one or multiple PDFs
-- Extract keywords
-- Compare multiple documents
-- Retrieve supporting evidence
-- Handle follow-up questions
-- Analyze multiple PDF files simultaneously
+```text
+User asks for comparison and sources
+    |
+Planner -> ["compare", "source"]
+    |
+Compare Agent
+    |
+Source Agent
+    |
+Collaboration Agent
+    |
+Revision Controller
+    |
+Reviewer Agent
+    |
+Final Answer
+```
 
----
+### Multi-Agent Question With Lightweight Retry
 
-## 📂 Project Structure
+```text
+Planner -> ["compare", "source"]
+    |
+Compare Agent + Source Agent
+    |
+Collaboration Agent detects missing summary
+    |
+Revision Controller adds "summary"
+    |
+Summary Agent
+    |
+Collaboration Agent
+    |
+Reviewer Agent
+    |
+Final Answer
+```
+
+## RAG Pipeline
+
+```text
+Uploaded PDFs
+    |
+PyPDFLoader
+    |
+Text splitting
+    |
+Embeddings
+    |
+FAISS vector store
+    |
+Retriever tools
+    |
+Specialist agents
+```
+
+The system retrieves relevant PDF chunks before calling the LLM, so answers are grounded in uploaded document content.
+
+## Memory
+
+The memory manager provides context for follow-up questions:
+
+- Recent conversation memory
+- LLM-generated summary of older conversation history
+- Current PDF session memory based on all uploaded PDF filenames
+- Cached conversation summaries
+
+If memory summarization fails, the system falls back gracefully instead of stopping the workflow.
+
+Retrieved PDF chunks are handled separately as `Relevant PDF Context`, so session memory describes which documents are available while retrieval context describes which chunks were selected for the current question.
+
+## UI Workflow Trace
+
+The Streamlit UI shows a workflow trace for each assistant answer, including:
+
+- planned specialist steps
+- whether collaboration was skipped or used
+- Collaboration Agent status
+- detected issues
+- missing information
+- recommendations
+- revision attempts
+- requested retry steps
+
+This makes the agent behavior observable during demos and debugging.
+
+## Error Handling
+
+The project includes graceful fallback paths:
+
+- Planner failure falls back to `["qa"]`
+- Collaboration failure skips retry and preserves available agent outputs
+- Memory summary failure skips summary memory
+- Reviewer failure returns raw specialist outputs
+- Specialist agent failures are recorded without stopping the entire workflow
+- Streamlit catches graph-level failures and returns a readable error message
+
+## Source Citations
+
+Retrieved PDF chunks are formatted with stable citation IDs before they are sent to the LLM:
+
+```text
+Citation: [example.pdf, page 3]
+PDF: example.pdf
+Page: 3
+Content:
+...
+```
+
+The assistant can then cite evidence using IDs such as `[example.pdf, page 3]`, and the Streamlit UI displays each source with its filename, page number, and excerpt.
+
+## Temporary File Handling
+
+Uploaded PDFs are written to temporary files only long enough for `PyPDFLoader` to read them. After loading, the app removes the temporary PDF path and also performs cleanup when the user clears all PDFs and chat history.
+
+## Technology Stack
+
+| Area | Technology |
+| --- | --- |
+| Language | Python |
+| UI | Streamlit |
+| Agent workflow | LangGraph |
+| LLM provider | DeepSeek via OpenAI-compatible API |
+| PDF loading | LangChain PyPDFLoader |
+| Vector database | FAISS |
+| Retrieval | RAG |
+| Embeddings | HuggingFace sentence-transformers |
+| Environment config | python-dotenv |
+
+## Project Structure
 
 ```text
 PDF-Agent/
-│
-├── agent/
-│   ├── graph_agent.py
-│   ├── llm_planner.py
-│   ├── reviewer_agent.py
-│   ├── qa_agent.py
-│   ├── summary_agent.py
-│   ├── keyword_agent.py
-│   ├── compare_agent.py
-│   ├── source_agent.py
-│   └── state.py
-│
-├── tools/
-│   ├── pdf_qa_tool.py
-│   ├── pdf_summary_tool.py
-│   ├── keyword_tool.py
-│   ├── compare_tool.py
-│   └── source_tool.py
-│
-├── utils/
-│   ├── deepseek_client.py
-│   ├── final_synthesizer.py
-│   └── memory.py
-│
-├── main.py
-├── requirements.txt
-└── README.md
+|-- agent/
+|   |-- graph_agent.py
+|   |-- state.py
+|   |-- llm_planner.py
+|   |-- collaboration_agent.py
+|   |-- reviewer_agent.py
+|   |-- qa_agent.py
+|   |-- source_agent.py
+|   |-- summary_agent.py
+|   |-- keyword_agent.py
+|   |-- compare_agent.py
+|
+|-- tools/
+|   |-- pdf_qa_tool.py
+|   |-- source_tool.py
+|   |-- pdf_summary_tool.py
+|   |-- keyword_tool.py
+|   |-- compare_tool.py
+|
+|-- utils/
+|   |-- llm_client.py
+|   |-- deepseek_client.py
+|   |-- final_synthesizer.py
+|   |-- memory.py
+|   |-- text_splitter.py
+|   |-- vectorstore.py
+|
+|-- main.py
+|-- requirements.txt
+|-- README.md
 ```
 
----
+## Installation
 
-## ⚙️ Installation
-
-### Clone the repository
-
-```bash
-git clone https://github.com/your-username/PDF-Agent.git
-cd PDF-Agent
-```
-
-### Install dependencies
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Configure environment variables
-
 Create a `.env` file:
 
 ```env
-DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
-OPENAI_API_KEY=your_embedding_key
 ```
 
-### Run
+Run the application:
 
 ```bash
 streamlit run main.py
 ```
 
----
+## Portfolio Highlights
 
-## 🐳 Docker
+This project demonstrates:
 
-Build the Docker image:
+- LangGraph stateful workflow design
+- Dynamic LLM-based agent planning
+- RAG over uploaded PDF documents
+- Multi-agent specialization
+- Collaboration-based output coordination
+- Lightweight reflection/retry with bounded revision count
+- Centralized LLM client abstraction
+- Graceful error handling and fallback design
+- Observable workflow tracing in the UI
 
-```bash
-docker build -t pdf-agent .
-```
+## Future Improvements
 
-Run the container:
+- Add automated evaluation examples
+- Add unit tests for planner parsing and collaboration retry decisions
+- Add optional parallel execution for independent specialist agents
+- Add structured logging for agent workflow events
+- Improve source citation formatting
+- Add multimodal PDF support for figures and tables
 
-```bash
-docker run -p 8501:8501 pdf-agent
-```
+## License
 
----
-
-## 🔮 Future Improvements
-
-- Agent Collaboration
-- Parallel Agent Execution
-- Reflection Agent
-- Long-Term Memory
-- Multi-Modal PDF Analysis
-- Agent Evaluation Pipeline
-
----
-
-## ⭐ Highlights
-
-- LangGraph Multi-Agent Workflow
-- Dynamic LLM Planning
-- Retrieval-Augmented Generation (RAG)
-- Conversation Memory Manager
-- Conversation Summary Memory
-- Tool Chaining
-- Multi-Step Reasoning
-- Modular Agent Design
-- Production-Oriented Architecture
-
----
-
-## 📄 License
-
-This project is intended for educational and research purposes.
+This project is intended for educational and portfolio use.

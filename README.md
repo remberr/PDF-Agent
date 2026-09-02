@@ -1,5 +1,7 @@
 # Multi-Agent PDF Analysis System
 
+**English** | [简体中文](README.zh-CN.md)
+
 A production-oriented PDF analysis application built with **LangGraph, FastAPI, React, and DeepSeek**. It combines retrieval-augmented generation, specialized agents, conversation memory, multi-agent collaboration, and bounded reflection/retry in an observable workflow.
 
 [**Live Demo**](https://pdf-agent-bxjp.onrender.com) | [**API Docs**](https://pdf-agent-bxjp.onrender.com/docs)

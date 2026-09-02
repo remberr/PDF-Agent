@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: pdf-agent
+    runtime: docker
+    plan: 1c-2g
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        value: deepseek-v4-flash
+      - key: PDF_AGENT_DATA_DIR
+        value: /data
+    disk:
+      name: pdf-agent-data
+      mountPath: /data
+      sizeGB: 1

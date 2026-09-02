@@ -19,7 +19,7 @@ from app.services.session_store import create_session, get_session
 router = APIRouter()
 
 
-@router.get("/", response_model=HealthResponse)
+@router.get("/health", response_model=HealthResponse)
 def health_check():
     return {
         "status": "ok",

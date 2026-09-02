@@ -6,8 +6,12 @@ import type {
   WorkflowProgress,
 } from "./types";
 
+const DEFAULT_API_BASE_URL = import.meta.env.DEV
+  ? "http://127.0.0.1:8000"
+  : "";
+
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000"
+  import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
 ).replace(/\/$/, "");
 
 function detailMessage(detail: unknown): string {
@@ -64,7 +68,7 @@ async function responseError(response: Response): Promise<Error> {
 }
 
 export function checkHealth(): Promise<HealthResponse> {
-  return apiRequest<HealthResponse>("/");
+  return apiRequest<HealthResponse>("/health");
 }
 
 export function createSession(): Promise<{ session_id: string }> {

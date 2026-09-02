@@ -6,6 +6,8 @@ This project is designed as a practical AI engineering portfolio project. It foc
 
 The project includes a React web workspace, a FastAPI backend API, and the original Streamlit interface.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/remberr/PDF-Agent)
+
 ## Features
 
 - Upload and analyze one or more PDF files
@@ -95,7 +97,7 @@ Open the web application:
 http://127.0.0.1:5173
 ```
 
-The default backend URL is `http://127.0.0.1:8000`. For a deployed API, copy `frontend/.env.example` to `frontend/.env` and set:
+During local Vite development, the default backend URL is `http://127.0.0.1:8000`. For a separately deployed API, copy `frontend/.env.example` to `frontend/.env` and set:
 
 ```env
 VITE_API_BASE_URL=https://your-api.example.com
@@ -106,6 +108,9 @@ VITE_API_BASE_URL=https://your-api.example.com
 The FastAPI version exposes the same PDF Agent workflow through HTTP endpoints.
 
 FastAPI sessions are persisted with SQLite, while each session's FAISS vectorstore is saved to disk under `app/data/`. This keeps uploaded PDF sessions recoverable across API process restarts in a single-instance deployment.
+
+The production Docker image serves the built React application from FastAPI, so the UI, API, and SSE stream share one public origin.
+It uses `requirements.api.txt` and a CPU-only PyTorch wheel to keep the deployment image focused on the web service; `requirements.txt` still includes Streamlit for local use.
 
 Run the API server:
 
@@ -120,6 +125,12 @@ http://127.0.0.1:8000/docs
 ```
 
 ### API Endpoints
+
+Check service health:
+
+```http
+GET /health
+```
 
 Create a session:
 
@@ -195,6 +206,42 @@ Example response:
 ```
 
 The Memory Manager is not a standalone LangGraph node. It is one of the context sources used when specialist agents call the LLM. Retrieved PDF chunks and conversation/session memory are combined into the final prompt context.
+
+## Docker
+
+Create `.env` from `.env.example`, add your DeepSeek API key, and start the production container:
+
+```bash
+docker compose up --build -d
+```
+
+Open the application at `http://127.0.0.1:8000`. API documentation remains available at `http://127.0.0.1:8000/docs`.
+
+The Compose service stores SQLite and FAISS data in the named volume `pdf-agent-data`. Stop the service without deleting its data:
+
+```bash
+docker compose down
+```
+
+Inspect service health and logs:
+
+```bash
+docker compose ps
+docker compose logs -f pdf-agent
+```
+
+## Public Deployment
+
+The included `render.yaml` deploys the Docker image as a single Render web service in Singapore with:
+
+- a 2 GB compute instance for the Python, FAISS, and embedding-model runtime
+- a 1 GB persistent disk mounted at `/data`
+- `DEEPSEEK_API_KEY` requested as a secret during Blueprint creation
+- health checks through `/health`
+
+Click the **Deploy to Render** button near the top of this README, enter `DEEPSEEK_API_KEY`, review the paid compute and disk resources, and apply the Blueprint. Render assigns the application a public `onrender.com` URL after the image finishes building.
+
+The persistent disk is important: without it, SQLite sessions and FAISS indexes are lost during redeploys. A disk-backed service runs as a single instance, which matches this project's local SQLite architecture. Migrating metadata to managed PostgreSQL and vectors to a networked vector database is the next step before horizontal scaling.
 
 ## Agent Design
 
@@ -491,6 +538,10 @@ PDF-Agent/
 |   |-- vectorstore.py
 |
 |-- main.py
+|-- Dockerfile
+|-- compose.yaml
+|-- render.yaml
+|-- requirements.api.txt
 |-- requirements.txt
 |-- README.md
 ```

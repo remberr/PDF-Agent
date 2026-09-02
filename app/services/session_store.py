@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
 from uuid import uuid4
@@ -6,7 +7,7 @@ from uuid import uuid4
 from utils.vectorstore import load_vectorstore
 
 
-DATA_DIR = Path("app/data")
+DATA_DIR = Path(os.getenv("PDF_AGENT_DATA_DIR", "app/data")).expanduser()
 VECTORSTORE_DIR = DATA_DIR / "vectorstores"
 DB_PATH = DATA_DIR / "sessions.db"
 

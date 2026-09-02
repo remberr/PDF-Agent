@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
-    autoDeploy: false
+    autoDeployTrigger: off
     envVars:
       - key: DEEPSEEK_API_KEY
         sync: false

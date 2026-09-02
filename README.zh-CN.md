@@ -215,6 +215,15 @@ data: {"answer":"...","sources":[...],"timings":{...},"usage":{...}}
 
 代表性事件包括 `http_request_completed`、`agent_node_completed`、`llm_call_completed`、`agent_workflow_completed`、`pdf_indexed` 和 `session_cleanup_completed`。
 
+#### 在哪里查看日志与成本
+
+- Render：进入 `pdf-agent` 服务并打开 **Logs**，可按 `request_id`、`session_id` 或事件名搜索，串联一次请求中的 HTTP、工作流和 LLM 调用。
+- Docker Compose：运行 `docker compose logs -f pdf-agent`，实时查看相同的 JSON 日志。
+- Web 应用：提交问题后打开 **Workflow / 工作流** 面板，查看 LLM 调用数、总 Token、缓存命中率、预估费用和各操作明细。
+- API：`/ask` 响应以及 SSE 的 `progress`、`result` 事件都会通过 `usage` 返回请求级数据；最终 Usage 汇总也会随 Assistant 消息保存在 Session 中。
+
+目前成本观测以单次请求和单个 Session 为范围，尚未提供持久化的全局历史成本 Dashboard。如需长期聚合，可将 JSON 日志接入外部日志平台。
+
 ### 数据持久化
 
 - SQLite 保存 Session ID、已上传文件名、对话历史、文档数量和 Vectorstore 路径。
@@ -376,6 +385,10 @@ python -m evaluation.runner --mode routing --output evaluation-report.json
 ```bash
 python -m evaluation.runner --mode live --llm-judge --output evaluation-report.json
 ```
+
+Runner 会将完整报告打印到终端，并在项目根目录生成 `evaluation-report.json`。其中 `summary` 包含整体质量、延迟、LLM 调用数、Token 和预估成本；`live` 模式下，`cases` 中的每个用例还包含实际路由、确定性指标、来源和请求级 `usage`。
+
+在 GitHub 中进入 **Actions**，打开最新的 **CI** 运行，并查看 **Backend tests**，即可看到路由评测输出。CI 当前会将评测结果用作质量门禁，但不会把 `evaluation-report.json` 上传为可下载的 Artifact。
 
 Judge 默认关闭，因为它会为每个用例增加一次 LLM 请求。可通过 `--case source-citations` 只运行一个用例，或通过 `--limit 2` 缩小评测规模。任一质量指标未达到配置阈值时，Runner 会返回非零退出码，因此可以直接作为 CI 质量门禁。
 

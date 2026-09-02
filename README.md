@@ -215,6 +215,15 @@ data: {"answer":"...","sources":[...],"timings":{...},"usage":{...}}
 
 Representative events include `http_request_completed`, `agent_node_completed`, `llm_call_completed`, `agent_workflow_completed`, `pdf_indexed`, and `session_cleanup_completed`.
 
+#### Where To View Logs And Costs
+
+- On Render, open the `pdf-agent` service and select **Logs**. Search by `request_id`, `session_id`, or an event name to trace one request across HTTP, workflow, and LLM calls.
+- With Docker Compose, stream the same JSON logs with `docker compose logs -f pdf-agent`.
+- In the Web application, submit a question and open the **Workflow** panel to inspect LLM calls, total tokens, cache hit rate, estimated cost, and the per-operation breakdown.
+- API clients can read the same request-level data from the `usage` object returned by `/ask` and by SSE `progress` and `result` events. The final usage summary is also stored with the assistant message in the session.
+
+Cost observability is currently scoped to individual requests and sessions. There is no persistent, application-wide historical cost dashboard yet; JSON logs can be forwarded to an external log platform for longer-term aggregation.
+
 ### Persistence
 
 - SQLite stores session IDs, uploaded filenames, chat history, document counts, and vectorstore paths.
@@ -376,6 +385,10 @@ Run controlled end-to-end cases with optional LLM-as-a-Judge scoring:
 ```bash
 python -m evaluation.runner --mode live --llm-judge --output evaluation-report.json
 ```
+
+The runner prints the complete report to the terminal and writes `evaluation-report.json` to the repository root. Its `summary` contains aggregate quality, latency, LLM-call, token, and estimated-cost metrics; each entry in `cases` contains the route, deterministic scores, sources, and request-level `usage` when running in `live` mode.
+
+In GitHub, open **Actions**, select the latest **CI** run, and inspect **Backend tests** to see the routing evaluation output. CI currently uses the report as a quality gate but does not upload `evaluation-report.json` as a downloadable artifact.
 
 The judge is opt-in because it adds one LLM request per evaluated case. Use `--case source-citations` for one case or `--limit 2` for a smaller run. A non-zero exit code is returned when configured quality thresholds are missed, so the runner can act as a CI quality gate.
 

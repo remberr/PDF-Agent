@@ -6,6 +6,7 @@ A production-oriented PDF analysis application built with **LangGraph, FastAPI, 
 
 [**Live Demo**](https://pdf-agent-bxjp.onrender.com) | [**API Docs**](https://pdf-agent-bxjp.onrender.com/docs)
 
+[![CI](https://github.com/remberr/PDF-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/remberr/PDF-Agent/actions/workflows/ci.yml)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/remberr/PDF-Agent)
 
 ## Highlights
@@ -351,6 +352,8 @@ python -m unittest discover -s tests -v
 ```
 
 The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, database migration, session TTL, deletion, and orphan cleanup.
+
+GitHub Actions runs the backend tests and frontend production build in parallel, then verifies the complete production Docker image. Dependency and BuildKit caches keep repeat runs fast.
 
 ## Technology Stack
 

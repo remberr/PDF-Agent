@@ -6,6 +6,7 @@
 
 [**在线体验**](https://pdf-agent-bxjp.onrender.com) | [**API 文档**](https://pdf-agent-bxjp.onrender.com/docs)
 
+[![CI](https://github.com/remberr/PDF-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/remberr/PDF-Agent/actions/workflows/ci.yml)
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/remberr/PDF-Agent)
 
 ## 项目亮点
@@ -351,6 +352,8 @@ python -m unittest discover -s tests -v
 ```
 
 测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、数据库迁移、Session TTL、主动删除和孤立索引清理。
+
+GitHub Actions 会并行执行后端测试和前端生产构建，全部通过后再验证完整的生产 Docker 镜像。依赖缓存与 BuildKit 缓存可加快后续运行。
 
 ## 技术栈
 

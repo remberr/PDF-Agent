@@ -16,6 +16,12 @@ build/
 dist/
 *.egg-info/
 
+# Frontend
+
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
 # Environment Variables
 
 .env
@@ -38,6 +44,7 @@ Thumbs.db
 
 vectorstore/
 faiss_index/
+app/data/
 
 # Uploaded PDFs
 

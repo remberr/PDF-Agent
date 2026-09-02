@@ -10,10 +10,12 @@ Responsibilities:
 
 import hashlib
 from collections import OrderedDict
+from threading import Lock
 
 from utils.llm_client import LLMClientError, chat_with_deepseek
 
 _memory_cache = {}
+_memory_cache_lock = Lock()
 
 
 def _hash_text(text):
@@ -72,10 +74,11 @@ def build_llm_conversation_summary(chat_history, recent_window=10):
 
     conversation_hash = _hash_text(conversation_text)
 
-    if conversation_hash in _memory_cache:
-        return _memory_cache[conversation_hash]
+    with _memory_cache_lock:
+        if conversation_hash in _memory_cache:
+            return _memory_cache[conversation_hash]
 
-    prompt = f"""
+        prompt = f"""
 Summarize the following previous conversation for an AI PDF Agent.
 
 Focus on:
@@ -92,15 +95,15 @@ Previous Conversation:
 {conversation_text}
 """
 
-    try:
-        summary = chat_with_deepseek(prompt)
+        try:
+            summary = chat_with_deepseek(prompt)
 
-    except LLMClientError:
-        return "Conversation summary is temporarily unavailable."
+        except LLMClientError:
+            return "Conversation summary is temporarily unavailable."
 
-    _memory_cache[conversation_hash] = summary
+        _memory_cache[conversation_hash] = summary
 
-    return summary
+        return summary
 
 
 def build_session_memory(loaded_pdfs):

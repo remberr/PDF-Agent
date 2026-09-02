@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Any
+from typing import Any, Dict, List, TypedDict
 
 
 class CollaborationNotes(TypedDict):
@@ -54,6 +54,9 @@ class AgentState(TypedDict):
     # Current executing step
     current_step: str
 
+    # Specialist steps completed in the current workflow
+    completed_steps: List[str]
+
     # Output from specific agents
     answers: List[str]
 
@@ -68,6 +71,9 @@ class AgentState(TypedDict):
 
     # Number of lightweight revision attempts
     revision_count: int
+
+    # Per-node and per-specialist execution time in milliseconds
+    timings: Dict[str, float]
 
     # FAISS vector database
     vectorstore: Any
@@ -93,11 +99,13 @@ def create_initial_agent_state(
         "question": question,
         "steps": [],
         "current_step": "",
+        "completed_steps": [],
         "answers": [],
         "answer": "",
         "results": [],
         "collaboration_notes": empty_collaboration_notes(),
         "revision_count": 0,
+        "timings": {},
         "vectorstore": vectorstore,
         "loaded_pdfs": loaded_pdfs or [],
         "chat_history": chat_history

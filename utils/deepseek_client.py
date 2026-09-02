@@ -3,7 +3,13 @@ from utils.llm_client import LLMClientError, chat_with_deepseek
 from utils.memory import build_memory
 
 
-def ask_deepseek(question, docs, chat_history=None, loaded_pdfs=None):
+def ask_deepseek(
+    question,
+    docs,
+    chat_history=None,
+    loaded_pdfs=None,
+    operation="pdf_answer",
+):
 
     context = format_docs_with_citations(docs)
 
@@ -34,7 +40,7 @@ Requirements:
 """
 
     try:
-        return chat_with_deepseek(prompt)
+        return chat_with_deepseek(prompt, operation=operation)
 
     except LLMClientError:
         if context:

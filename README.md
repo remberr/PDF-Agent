@@ -195,15 +195,25 @@ Interactive OpenAPI documentation is available at `/docs`.
 
 ### Streaming Workflow
 
-The SSE endpoint emits `progress` events for active and completed nodes, followed by one `result` event. Each request includes planner steps, revision count, per-node timings, total duration, collaboration notes, and source excerpts.
+The SSE endpoint emits `progress` events for active and completed nodes, followed by one `result` event. Each request includes planner steps, revision count, per-node timings, total duration, collaboration notes, source excerpts, and cumulative LLM usage.
 
 ```text
 event: progress
 data: {"node":"specialists","status":"completed",...}
 
 event: result
-data: {"answer":"...","sources":[...],"timings":{...}}
+data: {"answer":"...","sources":[...],"timings":{...},"usage":{...}}
 ```
+
+### Structured Logging And Cost Observability
+
+- Application, HTTP, workflow, PDF lifecycle, and LLM events are emitted as JSON to stdout.
+- Every HTTP response includes `X-Request-ID`; the same ID and Session ID correlate request, node, and model-call logs, including the full SSE lifetime.
+- LLM logs contain the operation, model, latency, input/output tokens, cache hit/miss tokens, cache hit rate, pricing tier, and estimated USD cost. Prompts, PDF text, API keys, and answers are not logged.
+- API and SSE results expose request-level `usage` totals with `by_model` and `by_operation` breakdowns. The Workflow panel displays calls, total tokens, cache hit rate, estimated cost, and per-operation usage.
+- Token counts come from the provider response. Cost is an estimate based on [DeepSeek's current peak/off-peak and cache-aware pricing](https://api-docs.deepseek.com/quick_start/pricing/); set all three `LLM_*_COST_PER_1M_TOKENS` variables to override built-in rates after a pricing change.
+
+Representative events include `http_request_completed`, `agent_node_completed`, `llm_call_completed`, `agent_workflow_completed`, `pdf_indexed`, and `session_cleanup_completed`.
 
 ### Persistence
 
@@ -225,6 +235,7 @@ The React workspace provides:
 - Markdown answers with expandable source excerpts
 - live Planner, Specialist, Collaboration, Revision, and Reviewer states
 - node-level execution timings and total workflow duration
+- request-level LLM token, cache, and estimated cost observability
 - API health and readable error states
 - responsive desktop and mobile layouts
 
@@ -260,6 +271,7 @@ Create `.env` from `.env.example` and add your DeepSeek API key:
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
+LOG_LEVEL=INFO
 SESSION_TTL_SECONDS=86400
 SESSION_CLEANUP_INTERVAL_SECONDS=3600
 ```
@@ -335,7 +347,7 @@ PDF-Agent/
 |
 |-- evaluation/                    # Benchmark cases, metrics, and evaluation CLI
 |-- tools/                         # Retrieval, summary, keyword, and comparison tools
-|-- utils/                         # LLM client, memory, citations, splitting, and FAISS
+|-- utils/                         # LLM, observability, memory, citations, and FAISS
 |-- tests/                         # Workflow, lifecycle, and evaluation tests
 |-- Dockerfile
 |-- compose.yaml
@@ -375,7 +387,7 @@ Run the agent fast-path and streaming tests:
 python -m unittest discover -s tests -v
 ```
 
-The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, evaluation metrics, database migration, session TTL, deletion, and orphan cleanup.
+The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, structured logs, token/cost accounting, evaluation metrics, database migration, session TTL, deletion, and orphan cleanup.
 
 GitHub Actions runs the backend tests and frontend production build in parallel, then verifies the complete production Docker image. Dependency and BuildKit caches keep repeat runs fast.
 
@@ -413,13 +425,13 @@ This project demonstrates practical AI engineering beyond a basic chat interface
 - conversation and session memory separation
 - centralized LLM configuration and fallback behavior
 - reproducible Agent Evaluation with deterministic CI gates and optional LLM judging
+- correlated JSON logs and cache-aware LLM cost observability
 - session-based FastAPI API design
 - real-time SSE observability
 - persisted single-instance deployment with Docker
 
 ## Future Improvements
 
-- Add structured application and workflow logging
 - Move persistence to PostgreSQL and a shared vector database for horizontal scaling
 - Add authentication, session ownership, and upload quotas
 - Add multimodal extraction for figures and tables

@@ -1,6 +1,14 @@
 from typing import List
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 
 from app.schemas.requests import AskRequest
@@ -93,7 +101,11 @@ async def upload_pdfs(
 
 
 @router.post("/sessions/{session_id}/ask", response_model=AskResponse)
-def ask_question(session_id: str, request: AskRequest):
+def ask_question(
+    session_id: str,
+    request: AskRequest,
+    http_request: Request,
+):
     session = get_session(session_id)
 
     if session is None:
@@ -105,11 +117,19 @@ def ask_question(session_id: str, request: AskRequest):
             detail="Please upload at least one PDF before asking questions."
         )
 
-    return ask_pdf_agent(session, request.question)
+    return ask_pdf_agent(
+        session,
+        request.question,
+        http_request.state.request_id,
+    )
 
 
 @router.post("/sessions/{session_id}/ask/stream")
-def stream_question(session_id: str, request: AskRequest):
+def stream_question(
+    session_id: str,
+    request: AskRequest,
+    http_request: Request,
+):
     session = get_session(session_id)
 
     if session is None:
@@ -122,7 +142,11 @@ def stream_question(session_id: str, request: AskRequest):
         )
 
     return StreamingResponse(
-        stream_pdf_agent(session, request.question),
+        stream_pdf_agent(
+            session,
+            request.question,
+            http_request.state.request_id,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

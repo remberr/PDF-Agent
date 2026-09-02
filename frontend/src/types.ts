@@ -36,6 +36,25 @@ export interface CollaborationNotes {
   next_steps?: string[];
 }
 
+export interface UsageBreakdown {
+  llm_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_hit_tokens: number;
+  cache_miss_tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface LLMUsage extends UsageBreakdown {
+  cache_hit_rate: number;
+  currency: string;
+  cost_estimate_available: boolean;
+  pricing_tiers: string[];
+  by_model: Record<string, UsageBreakdown>;
+  by_operation: Record<string, UsageBreakdown>;
+}
+
 export interface AskResponse {
   answer: string;
   steps: string[];
@@ -43,6 +62,7 @@ export interface AskResponse {
   collaboration_notes: CollaborationNotes;
   revision_count: number;
   timings: Record<string, number>;
+  usage: LLMUsage;
 }
 
 export interface WorkflowProgress {
@@ -53,6 +73,7 @@ export interface WorkflowProgress {
   revision_count: number;
   elapsed_ms?: number;
   timings: Record<string, number>;
+  usage: LLMUsage;
 }
 
 export interface ConversationTurn {

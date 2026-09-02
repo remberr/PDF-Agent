@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from utils.vectorstore import load_vectorstore
+from utils.observability import log_event
 
 
 DATA_DIR = Path(os.getenv("PDF_AGENT_DATA_DIR", "app/data")).expanduser()
@@ -154,6 +155,13 @@ def create_session():
         )
         conn.commit()
 
+    log_event(
+        logger,
+        logging.INFO,
+        "session_created",
+        session_id=session_id,
+        ttl_seconds=SESSION_TTL_SECONDS,
+    )
     return session_id
 
 
@@ -265,14 +273,24 @@ def remove_session_vectorstore(session_id):
     """
 
     if not SESSION_ID_PATTERN.fullmatch(session_id):
-        logger.warning("Refusing to remove invalid session path: %s", session_id)
+        log_event(
+            logger,
+            logging.WARNING,
+            "vectorstore_delete_rejected",
+            reason="invalid_session_id",
+        )
         return False
 
     vectorstore_root = VECTORSTORE_DIR.resolve()
     vectorstore_path = get_vectorstore_path(session_id).resolve()
 
     if vectorstore_path.parent != vectorstore_root:
-        logger.warning("Refusing to remove path outside vectorstore root.")
+        log_event(
+            logger,
+            logging.WARNING,
+            "vectorstore_delete_rejected",
+            reason="outside_vectorstore_root",
+        )
         return False
 
     if not vectorstore_path.exists():
@@ -290,10 +308,13 @@ def remove_session_vectorstore_safely(session_id, reason):
     try:
         return remove_session_vectorstore(session_id)
     except OSError:
-        logger.exception(
-            "Could not remove %s vectorstore for session %s.",
-            reason,
-            session_id,
+        log_event(
+            logger,
+            logging.ERROR,
+            "vectorstore_delete_failed",
+            exc_info=True,
+            session_id=session_id,
+            reason=reason,
         )
         return False
 
@@ -316,6 +337,13 @@ def delete_session(session_id):
         return False
 
     remove_session_vectorstore_safely(session_id, "deleted")
+
+    log_event(
+        logger,
+        logging.INFO,
+        "session_deleted",
+        session_id=session_id,
+    )
 
     return True
 
@@ -366,10 +394,12 @@ def cleanup_expired_sessions(now=None):
 
     deleted_count = len(expired_session_ids)
     if deleted_count or orphan_count:
-        logger.info(
-            "Session cleanup removed %s expired sessions and %s orphaned indexes.",
-            deleted_count,
-            orphan_count,
+        log_event(
+            logger,
+            logging.INFO,
+            "session_cleanup_completed",
+            expired_sessions=deleted_count,
+            orphaned_vectorstores=orphan_count,
         )
 
     return {

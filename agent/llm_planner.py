@@ -219,7 +219,10 @@ Rules:
 """
 
     try:
-        content = chat_with_deepseek(prompt).strip()
+        content = chat_with_deepseek(
+            prompt,
+            operation="planner",
+        ).strip()
 
     except LLMClientError:
         return ["qa"]

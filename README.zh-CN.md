@@ -195,15 +195,25 @@ Memory Manager 是 Prompt 上下文组件，而不是独立的 LangGraph 节点�
 
 ### 流式工作流
 
-SSE 接口会为正在运行和已经完成的节点发送 `progress` 事件，最后发送一个 `result` 事件。每次请求都会返回 Planner 步骤、重试次数、节点耗时、总耗时、协作备注和来源摘录。
+SSE 接口会为正在运行和已经完成的节点发送 `progress` 事件，最后发送一个 `result` 事件。每次请求都会返回 Planner 步骤、重试次数、节点耗时、总耗时、协作备注、来源摘录和累计 LLM 用量。
 
 ```text
 event: progress
 data: {"node":"specialists","status":"completed",...}
 
 event: result
-data: {"answer":"...","sources":[...],"timings":{...}}
+data: {"answer":"...","sources":[...],"timings":{...},"usage":{...}}
 ```
+
+### 结构化日志与成本观测
+
+- 应用、HTTP、工作流、PDF 生命周期和 LLM 事件均以 JSON 输出到 stdout。
+- 每个 HTTP 响应都包含 `X-Request-ID`；请求日志、节点日志和模型调用日志使用同一 Request ID 与 Session ID 关联，并覆盖完整 SSE 生命周期。
+- LLM 日志记录操作、模型、延迟、输入/输出 Token、缓存命中/未命中 Token、命中率、计价时段和预估美元费用。Prompt、PDF 正文、API Key 和答案不会进入日志。
+- API 与 SSE 结果通过 `usage` 返回请求级汇总，并按 `by_model` 和 `by_operation` 拆分。Workflow 面板展示调用数、总 Token、缓存命中率、预估费用和各操作用量。
+- Token 数量采用模型服务返回的实际 Usage；费用根据 [DeepSeek 当前峰谷和缓存计价](https://api-docs.deepseek.com/quick_start/pricing/)估算。官方价格变化后，可同时设置三个 `LLM_*_COST_PER_1M_TOKENS` 环境变量覆盖内置单价。
+
+代表性事件包括 `http_request_completed`、`agent_node_completed`、`llm_call_completed`、`agent_workflow_completed`、`pdf_indexed` 和 `session_cleanup_completed`。
 
 ### 数据持久化
 
@@ -225,6 +235,7 @@ React 工作区提供：
 - Markdown 答案与可展开的来源摘录
 - 实时展示 Planner、Specialist、Collaboration、Revision 和 Reviewer 状态
 - 节点执行耗时与工作流总耗时
+- 请求级 LLM Token、缓存命中和预估费用观测
 - API 健康状态和可读的错误提示
 - 响应式桌面端与移动端布局
 
@@ -260,6 +271,7 @@ React 工作区提供：
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
+LOG_LEVEL=INFO
 SESSION_TTL_SECONDS=86400
 SESSION_CLEANUP_INTERVAL_SECONDS=3600
 ```
@@ -335,7 +347,7 @@ PDF-Agent/
 |
 |-- evaluation/                    # 基准数据集、指标与评测 CLI
 |-- tools/                         # 检索、总结、关键词和对比工具
-|-- utils/                         # LLM Client、Memory、引用、分块与 FAISS
+|-- utils/                         # LLM、观测、Memory、引用与 FAISS
 |-- tests/                         # 工作流、生命周期与 Evaluation 测试
 |-- Dockerfile
 |-- compose.yaml
@@ -375,7 +387,7 @@ Judge 默认关闭，因为它会为每个用例增加一次 LLM 请求。可通
 python -m unittest discover -s tests -v
 ```
 
-测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、Evaluation 指标、数据库迁移、Session TTL、主动删除和孤立索引清理。
+测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、结构化日志、Token/费用核算、Evaluation 指标、数据库迁移、Session TTL、主动删除和孤立索引清理。
 
 GitHub Actions 会并行执行后端测试和前端生产构建，全部通过后再验证完整的生产 Docker 镜像。依赖缓存与 BuildKit 缓存可加快后续运行。
 
@@ -413,13 +425,13 @@ streamlit run main.py
 - 对话记忆与 Session 文档上下文分离
 - 统一的 LLM 配置与降级处理
 - 可复现的 Agent Evaluation、确定性 CI 门禁与可选 LLM Judge
+- 关联式 JSON 日志与缓存感知的 LLM 成本观测
 - 基于 Session 的 FastAPI API 设计
 - SSE 实时可观测性
 - 使用 Docker 的单实例持久化部署
 
 ## 后续优化
 
-- 增加结构化应用日志和工作流日志
 - 使用 PostgreSQL 和共享向量数据库支持横向扩展
 - 增加身份认证、Session 所有权和上传配额
 - 增加图表与表格的多模态提取能力

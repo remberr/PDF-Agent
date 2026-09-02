@@ -13,6 +13,8 @@ services:
         sync: false
       - key: DEEPSEEK_MODEL
         value: deepseek-v4-flash
+      - key: LOG_LEVEL
+        value: INFO
       - key: PDF_AGENT_DATA_DIR
         value: /data
       - key: SESSION_TTL_SECONDS

@@ -70,6 +70,14 @@ export interface Translation {
     requestedSteps: string;
     runtime: string;
     total: string;
+    usage: string;
+    calls: string;
+    tokens: string;
+    cacheHit: string;
+    estimatedCost: string;
+    operations: string;
+    unavailable: string;
+    usageOperations: Record<string, string>;
     steps: Record<string, string>;
     statuses: Record<string, string>;
   };
@@ -158,6 +166,25 @@ export const translations: Record<Language, Translation> = {
       requestedSteps: "Requested steps",
       runtime: "Runtime",
       total: "Total",
+      usage: "LLM usage",
+      calls: "Calls",
+      tokens: "Tokens",
+      cacheHit: "Cache hit",
+      estimatedCost: "Est. cost",
+      operations: "Usage by operation",
+      unavailable: "Unavailable",
+      usageOperations: {
+        planner: "Planner",
+        qa: "QA",
+        source: "Source",
+        summary: "Summary",
+        keyword: "Keywords",
+        compare: "Comparison",
+        collaboration: "Collaboration",
+        reviewer: "Reviewer",
+        memory_summary: "Memory summary",
+        evaluation_judge: "Evaluation judge",
+      },
       steps: {
         qa: "QA Agent",
         source: "Source Agent",
@@ -257,6 +284,25 @@ export const translations: Record<Language, Translation> = {
       requestedSteps: "追加步骤",
       runtime: "运行耗时",
       total: "总耗时",
+      usage: "LLM 用量",
+      calls: "调用数",
+      tokens: "Token",
+      cacheHit: "缓存命中",
+      estimatedCost: "预估费用",
+      operations: "按操作拆分",
+      unavailable: "不可估算",
+      usageOperations: {
+        planner: "规划",
+        qa: "问答",
+        source: "来源",
+        summary: "总结",
+        keyword: "关键词",
+        compare: "对比",
+        collaboration: "协作",
+        reviewer: "审查",
+        memory_summary: "记忆摘要",
+        evaluation_judge: "评测 Judge",
+      },
       steps: {
         qa: "问答 Agent",
         source: "来源 Agent",

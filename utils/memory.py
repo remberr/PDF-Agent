@@ -96,7 +96,10 @@ Previous Conversation:
 """
 
         try:
-            summary = chat_with_deepseek(prompt)
+            summary = chat_with_deepseek(
+                prompt,
+                operation="memory_summary",
+            )
 
         except LLMClientError:
             return "Conversation summary is temporarily unavailable."

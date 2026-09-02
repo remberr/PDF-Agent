@@ -46,10 +46,23 @@ function formatDuration(milliseconds?: number): string {
   return `${(milliseconds / 1000).toFixed(2)} s`;
 }
 
+function formatCost(cost: number, available: boolean): string {
+  if (!available) {
+    return "--";
+  }
+
+  if (cost === 0) {
+    return "$0.000000";
+  }
+
+  return cost < 0.01 ? `$${cost.toFixed(6)}` : `$${cost.toFixed(4)}`;
+}
+
 export function WorkflowPanel({ result, progress, t }: WorkflowPanelProps) {
   const notes = result?.collaboration_notes;
   const steps = result?.steps ?? progress?.steps ?? [];
   const timings = result?.timings ?? progress?.timings ?? {};
+  const usage = result?.usage ?? progress?.usage;
   const collaborationStatus = notes?.status ?? "waiting";
   const collaborationLabel =
     t.workflow.statuses[collaborationStatus] ?? collaborationStatus;
@@ -245,6 +258,56 @@ export function WorkflowPanel({ result, progress, t }: WorkflowPanelProps) {
                   <time>{formatDuration(timings[key])}</time>
                 </div>
               ))}
+            </div>
+          )}
+
+          {usage && (
+            <div className="usage-observability">
+              <strong>{t.workflow.usage}</strong>
+              <div className="usage-metrics">
+                <div>
+                  <span>{t.workflow.calls}</span>
+                  <strong>{usage.llm_calls}</strong>
+                </div>
+                <div>
+                  <span>{t.workflow.tokens}</span>
+                  <strong>{usage.total_tokens.toLocaleString()}</strong>
+                </div>
+                <div>
+                  <span>{t.workflow.cacheHit}</span>
+                  <strong>{Math.round(usage.cache_hit_rate * 100)}%</strong>
+                </div>
+                <div>
+                  <span>{t.workflow.estimatedCost}</span>
+                  <strong>
+                    {usage.cost_estimate_available
+                      ? formatCost(usage.estimated_cost_usd, true)
+                      : t.workflow.unavailable}
+                  </strong>
+                </div>
+              </div>
+
+              {Object.keys(usage.by_operation).length > 0 && (
+                <div className="usage-operation-list">
+                  <strong>{t.workflow.operations}</strong>
+                  {Object.entries(usage.by_operation).map(
+                    ([operation, item]) => (
+                      <div key={operation}>
+                        <span>
+                          {t.workflow.usageOperations[operation] ?? operation}
+                        </span>
+                        <span>{item.total_tokens.toLocaleString()} tok</span>
+                        <strong>
+                          {formatCost(
+                            item.estimated_cost_usd,
+                            usage.cost_estimate_available,
+                          )}
+                        </strong>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
             </div>
           )}
 

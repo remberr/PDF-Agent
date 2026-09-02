@@ -1,5 +1,7 @@
 import os
+import logging
 import tempfile
+from time import perf_counter
 
 from fastapi import UploadFile
 from langchain_community.document_loaders import PyPDFLoader
@@ -7,6 +9,10 @@ from langchain_community.document_loaders import PyPDFLoader
 from app.services.session_store import save_session
 from utils.text_splitter import split_documents
 from utils.vectorstore import create_vectorstore, save_vectorstore
+from utils.observability import log_event
+
+
+logger = logging.getLogger(__name__)
 
 
 async def load_pdf_into_session(session, uploaded_file: UploadFile):
@@ -15,9 +21,17 @@ async def load_pdf_into_session(session, uploaded_file: UploadFile):
     """
 
     if uploaded_file.filename in session["loaded_pdfs"]:
+        log_event(
+            logger,
+            logging.INFO,
+            "pdf_upload_skipped",
+            session_id=session.get("session_id"),
+            reason="duplicate_filename",
+        )
         return False
 
     pdf_path = None
+    started_at = perf_counter()
 
     try:
         pdf_bytes = await uploaded_file.read()
@@ -49,7 +63,31 @@ async def load_pdf_into_session(session, uploaded_file: UploadFile):
         )
         save_session(session)
 
+        log_event(
+            logger,
+            logging.INFO,
+            "pdf_indexed",
+            session_id=session.get("session_id"),
+            file_size_bytes=len(pdf_bytes),
+            page_count=len(docs),
+            chunk_count=len(chunks),
+            loaded_pdf_count=len(session["loaded_pdfs"]),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+        )
+
         return True
+
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "pdf_index_failed",
+            exc_info=True,
+            session_id=session.get("session_id"),
+            duration_ms=round((perf_counter() - started_at) * 1000, 2),
+            error_type=type(exc).__name__,
+        )
+        raise
 
     finally:
         if pdf_path and os.path.exists(pdf_path):

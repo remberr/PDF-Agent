@@ -109,6 +109,9 @@ def summarize_results(results, mode):
     }
 
     if mode == "live":
+        usage_summaries = [
+            result.get("usage", {}) for result in results
+        ]
         summary.update(
             {
                 "answer_success_rate": round(
@@ -133,6 +136,19 @@ def summarize_results(results, mode):
                 ),
                 "total_revisions": sum(
                     metric["revision_count"] for metric in metrics
+                ),
+                "llm_calls": sum(
+                    usage.get("llm_calls", 0) for usage in usage_summaries
+                ),
+                "total_tokens": sum(
+                    usage.get("total_tokens", 0) for usage in usage_summaries
+                ),
+                "estimated_cost_usd": round(
+                    sum(
+                        usage.get("estimated_cost_usd", 0.0)
+                        for usage in usage_summaries
+                    ),
+                    8,
                 ),
             }
         )

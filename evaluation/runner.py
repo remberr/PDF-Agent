@@ -14,6 +14,7 @@ from agent.state import create_initial_agent_state
 from app.services.agent_service import serialize_sources
 from evaluation.metrics import evaluate_output, summarize_results
 from utils.llm_client import LLMClientError, chat_with_deepseek
+from utils.observability import new_usage_tracker, observability_context
 
 
 DEFAULT_DATASET = Path(__file__).with_name("cases.json")
@@ -76,9 +77,14 @@ def _run_live_case(case, graph):
         [],
         loaded_pdfs,
     )
+    usage_tracker = new_usage_tracker()
 
     started_at = perf_counter()
-    final_state = graph.invoke(state)
+    with observability_context(
+        session_id=f"evaluation:{case['id']}",
+        usage_tracker=usage_tracker,
+    ):
+        final_state = graph.invoke(state)
     latency_ms = round((perf_counter() - started_at) * 1000, 2)
 
     return {
@@ -87,6 +93,7 @@ def _run_live_case(case, graph):
         "sources": serialize_sources(final_state.get("results", [])),
         "revision_count": final_state.get("revision_count", 0),
         "latency_ms": latency_ms,
+        "usage": usage_tracker.summary(),
     }
 
 
@@ -124,7 +131,10 @@ Scoring rules:
 - relevance: directly answers the question without unnecessary content
 """
 
-    content = chat_with_deepseek(prompt).strip()
+    content = chat_with_deepseek(
+        prompt,
+        operation="evaluation_judge",
+    ).strip()
     if content.startswith("```"):
         content = content.strip("`")
         if content.startswith("json"):
@@ -214,6 +224,7 @@ def run(args):
             result["metrics"] = evaluate_output(case, output)
             result["answer"] = output["answer"]
             result["sources"] = output["sources"]
+            result["usage"] = output["usage"]
         else:
             result["metrics"] = {
                 "route_exact_match": float(

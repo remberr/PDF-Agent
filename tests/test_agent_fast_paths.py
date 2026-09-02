@@ -216,6 +216,8 @@ class StreamingWorkflowTests(unittest.TestCase):
         self.assertIn("planner", events[-1]["data"]["timings"])
         self.assertIn("qa", events[-1]["data"]["timings"])
         self.assertIn("total", events[-1]["data"]["timings"])
+        self.assertEqual(events[-1]["data"]["usage"]["llm_calls"], 0)
+        self.assertEqual(events[-1]["data"]["usage"]["total_tokens"], 0)
         self.assertEqual(len(session["messages"]), 2)
         mock_save_session.assert_called_once_with(session)
 

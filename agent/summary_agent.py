@@ -37,7 +37,8 @@ Requirements:
         prompt,
         docs,
         chat_history,
-        loaded_pdfs
+        loaded_pdfs,
+        operation="summary",
     )
 
     return {

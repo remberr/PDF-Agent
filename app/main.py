@@ -15,11 +15,17 @@ from app.services.session_store import (
     cleanup_expired_sessions,
     init_session_store,
 )
+from utils.observability import (
+    RequestContextMiddleware,
+    configure_logging,
+    log_event,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -41,7 +47,12 @@ async def session_cleanup_loop():
         try:
             await asyncio.to_thread(cleanup_expired_sessions)
         except Exception:
-            logger.exception("Scheduled session cleanup failed.")
+            log_event(
+                logger,
+                logging.ERROR,
+                "scheduled_session_cleanup_failed",
+                exc_info=True,
+            )
 
 
 @asynccontextmanager
@@ -75,6 +86,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(router)
 

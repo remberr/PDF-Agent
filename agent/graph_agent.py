@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from time import perf_counter
 
 from langgraph.graph import StateGraph, END
@@ -231,12 +232,13 @@ def specialist_agent_node(state: AgentState):
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
+                copy_context().run,
                 _execute_timed_specialist,
                 step,
                 question,
                 vectorstore,
                 chat_history,
-                loaded_pdfs
+                loaded_pdfs,
             ): step
             for step in pending_steps
         }

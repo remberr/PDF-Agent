@@ -34,7 +34,10 @@ Requirements:
 """
 
     try:
-        return chat_with_deepseek(prompt)
+        return chat_with_deepseek(
+            prompt,
+            operation="reviewer",
+        )
 
     except LLMClientError:
         return "\n\n".join(answers)

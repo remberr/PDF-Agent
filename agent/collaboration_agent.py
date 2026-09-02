@@ -82,7 +82,10 @@ Rules:
 """
 
     try:
-        content = chat_with_deepseek(prompt).strip()
+        content = chat_with_deepseek(
+            prompt,
+            operation="collaboration",
+        ).strip()
 
     except LLMClientError as exc:
         return build_failed_collaboration_notes(

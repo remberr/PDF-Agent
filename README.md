@@ -1,91 +1,285 @@
 # Multi-Agent PDF Analysis System
 
-A React, FastAPI, and LangGraph based PDF analysis application powered by DeepSeek. The system combines Retrieval-Augmented Generation (RAG), dynamic agent planning, conversation memory, multi-agent collaboration, and lightweight reflection/retry to answer questions over one or more uploaded PDFs.
-
-This project is designed as a practical AI engineering portfolio project. It focuses on clear agent responsibilities, observable workflow traces, graceful error handling, and maintainable LLM client abstraction.
-
-The project includes a React web workspace, a FastAPI backend API, and the original Streamlit interface.
+A production-oriented PDF analysis application built with **LangGraph, FastAPI, React, and DeepSeek**. It combines retrieval-augmented generation, specialized agents, conversation memory, multi-agent collaboration, and bounded reflection/retry in an observable workflow.
 
 [**Live Demo**](https://pdf-agent-bxjp.onrender.com) | [**API Docs**](https://pdf-agent-bxjp.onrender.com/docs)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/remberr/PDF-Agent)
 
-## Features
+## Highlights
 
-- Upload and analyze one or more PDF files
-- Ask questions grounded in retrieved PDF content
-- Summarize documents
-- Extract keywords and key concepts
-- Compare multiple PDFs
-- Retrieve supporting sources and page references
-- Add stable citation IDs such as `[paper.pdf, page 3]` for retrieved PDF evidence
-- Maintain recent conversation and summarized long-term chat context
-- Dynamically select specialist agents with a hybrid fast-path/LLM planner
-- Coordinate multi-agent outputs with a Collaboration Agent
-- Use lightweight reflection/retry when important information is missing
-- Run independent specialist agents concurrently
-- Synthesize final answers with a Reviewer Agent
-- Stream live workflow progress and per-node timings to the React UI
-- Display workflow traces in the Streamlit UI
-- Use a responsive React workspace for PDF upload, chat, citations, and workflow traces
-- Expose session-based PDF upload and question answering through FastAPI
-- Centralize DeepSeek client configuration and error handling
+- Analyze one or more uploaded PDFs through a session-based web application
+- Route requests to focused QA, summary, keyword, comparison, and source agents
+- Run independent specialist agents concurrently while preserving planner order
+- Coordinate multi-agent results before final synthesis
+- Use bounded reflection/retry when evidence or specialist coverage is incomplete
+- Ground answers in FAISS-retrieved chunks with filename and page citations
+- Combine recent conversation, summarized history, and current PDF session context
+- Stream live workflow events and node timings to the React interface with SSE
+- Persist session metadata in SQLite and FAISS indexes on disk
+- Reduce latency and token usage with deterministic planner, source, and reviewer fast paths
+- Package the frontend and backend as one production Docker service
 
 ## Architecture
 
 ```text
-User Question
-    |
-    v
-React Web UI
-    |
-    v
-FastAPI Session API
-    |
-    +-- SQLite session metadata
-    +-- persisted FAISS indexes
-    |
-    v
+Browser
+  |
+  v
+React + TypeScript
+  |
+  | REST + Server-Sent Events
+  v
+FastAPI
+  |
+  +-- Session Service --------> SQLite
+  +-- PDF Service ------------> PyPDFLoader -> text chunks -> FAISS
+  |
+  v
 LangGraph Workflow
-    |
-    v
-Planner Agent
-    |
-    v
+  |
+  v
+Hybrid Planner
+  |
+  v
 Specialist Agent(s) in parallel
-    |
-    +-- Retriever -> FAISS PDF chunks
-    |
-    +-- Memory Manager -> conversation/session context
-    |
-    v
-LLM Prompt Context
-    |
-    v
+  |
+  +-- Retriever -------------> relevant PDF chunks
+  +-- Memory Manager --------> conversation and session context
+  |
+  v
 Workflow Controller
-    |
-    +-- single-agent output -------> Reviewer Agent ---> Final Answer
-    |
-    +-- multi-agent output --------> Collaboration Agent
-                                      |
-                                      v
-                                  Revision Controller
-                                      |
-                                      +-- retry needed ---> Specialist Agent(s)
-                                      |
-                                      +-- no retry -------> Reviewer Agent
-                                                              |
-                                                              v
-                                                         Final Answer
+  |
+  +-- single result ---------> Reviewer fast path
+  |
+  +-- multiple results ------> Collaboration Agent
+                                 |
+                                 v
+                             Revision Controller
+                                 |
+                                 +-- retry once when needed
+                                 |
+                                 v
+                             Reviewer Agent
+                                 |
+                                 v
+                             Final cited answer
 ```
 
-The original Streamlit UI remains available as a separate direct interface to the LangGraph workflow.
+The production container serves the compiled React application, API, and SSE stream from the same FastAPI origin. This keeps deployment simple and avoids cross-origin configuration in production.
 
-## React Web Frontend
+## Agent Workflow
 
-The `frontend/` application is a responsive TypeScript workspace connected to the FastAPI session endpoints. It includes English/Chinese language switching, document upload, browser-side session restoration, Markdown answers, expandable source excerpts, API health status, and an observable agent workflow panel.
+### Hybrid Planner
 
-Install and run the frontend:
+The Planner returns an ordered list of specialist steps:
+
+```text
+qa | source | summary | keyword | compare
+```
+
+Clear English and Chinese intents use deterministic routing. Ambiguous requests fall back to DeepSeek, preserving adaptive planning without paying for a planner model call on every question.
+
+### Specialist Agents
+
+| Agent | Responsibility |
+| --- | --- |
+| QA Agent | Answer questions from retrieved PDF evidence |
+| Summary Agent | Summarize document content |
+| Keyword Agent | Extract important concepts and terminology |
+| Compare Agent | Compare multiple PDFs across methods, findings, and conclusions |
+| Source Agent | Format deterministic filename, page, citation, and excerpt metadata |
+
+Independent specialists run concurrently in a bounded thread pool. Their outputs are collected in planner order so parallel execution does not make the final answer nondeterministic.
+
+### Collaboration And Reflection
+
+The Collaboration Agent runs only when multiple specialist outputs are available. It merges overlapping findings, detects contradictions, identifies missing information, and returns a structured retry decision:
+
+```python
+{
+    "answer": "...",
+    "issues": [],
+    "missing_information": [],
+    "recommendations": [],
+    "needs_revision": False,
+    "next_steps": [],
+}
+```
+
+The Revision Controller can add missing specialist steps and retry once:
+
+```python
+MAX_REVISION_COUNT = 1
+```
+
+This keeps reflection adaptive while preventing infinite loops and uncontrolled model cost.
+
+### Reviewer
+
+The Reviewer synthesizes multi-agent outputs and collaboration notes into one cited answer. A single-specialist request uses a pass-through fast path because an additional rewrite would add latency without adding useful information.
+
+### Example Paths
+
+```text
+Direct question
+  -> Planner [qa]
+  -> QA Agent
+  -> Reviewer fast path
+  -> Answer
+
+Compare with citations
+  -> Planner [compare, source]
+  -> Compare Agent + Source Agent in parallel
+  -> Collaboration Agent
+  -> Revision Controller
+  -> Reviewer Agent
+  -> Answer
+
+Missing summary during collaboration
+  -> Collaboration requests [summary]
+  -> Summary Agent
+  -> Collaboration Agent
+  -> Reviewer Agent
+  -> Answer
+```
+
+## Retrieval And Memory
+
+Uploaded PDFs pass through this RAG pipeline:
+
+```text
+PDF -> PyPDFLoader -> text splitting -> multilingual embeddings -> FAISS
+                                                          |
+Question -> retriever ------------------------------------+
+                                                          |
+                                                          v
+                                                  specialist prompt
+```
+
+Retrieved chunks carry stable citation metadata:
+
+```text
+Citation: [example.pdf, page 3]
+PDF: example.pdf
+Page: 3
+Content: ...
+```
+
+The Memory Manager is a prompt-context component, not a standalone LangGraph node. It contributes:
+
+- recent conversation messages
+- cached summaries of older conversation history
+- the filenames available in the current PDF session
+
+Retrieved PDF chunks remain separate from conversation memory. This distinction keeps document evidence explicit and makes source attribution easier to inspect.
+
+## FastAPI Backend
+
+The backend exposes session-based PDF analysis over HTTP:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Service health check |
+| `POST` | `/sessions` | Create a PDF analysis session |
+| `GET` | `/sessions/{session_id}` | Inspect session metadata |
+| `POST` | `/sessions/{session_id}/pdfs` | Upload one or more PDFs |
+| `POST` | `/sessions/{session_id}/ask` | Run the workflow and return one response |
+| `POST` | `/sessions/{session_id}/ask/stream` | Stream workflow progress and the final result |
+
+Interactive OpenAPI documentation is available at `/docs`.
+
+### Streaming Workflow
+
+The SSE endpoint emits `progress` events for active and completed nodes, followed by one `result` event. Each request includes planner steps, revision count, per-node timings, total duration, collaboration notes, and source excerpts.
+
+```text
+event: progress
+data: {"node":"specialists","status":"completed",...}
+
+event: result
+data: {"answer":"...","sources":[...],"timings":{...}}
+```
+
+### Persistence
+
+- SQLite stores session IDs, uploaded filenames, chat history, document counts, and vectorstore paths.
+- Each session has a persisted FAISS index.
+- `PDF_AGENT_DATA_DIR` controls the storage root and defaults to `app/data`.
+- Docker and Render mount `/data` as a persistent volume.
+- This design targets a single application instance. Horizontal scaling should move metadata and vectors to shared managed services.
+
+## Web Application
+
+The React workspace provides:
+
+- English and Chinese language switching
+- multi-PDF upload and browser-side session restoration
+- Markdown answers with expandable source excerpts
+- live Planner, Specialist, Collaboration, Revision, and Reviewer states
+- node-level execution timings and total workflow duration
+- API health and readable error states
+- responsive desktop and mobile layouts
+
+## Performance And Reliability
+
+The workflow avoids redundant model calls where deterministic behavior is more reliable:
+
+- explicit English and Chinese intents skip LLM planning
+- ordinary questions route directly to QA
+- source citations are formatted from retrieval metadata without an LLM
+- single-specialist responses skip reviewer rewriting
+- independent specialists execute concurrently
+- only ambiguous planning, multi-agent collaboration, and multi-agent review remain model-powered
+
+A normal QA request uses one LLM call. A QA request with sources uses collaboration and review only when multiple outputs require coordination.
+
+Failure paths degrade gracefully:
+
+- planner failure falls back to `qa`
+- one specialist failure does not discard other successful outputs
+- collaboration failure preserves available results and skips retry
+- reviewer failure returns the specialist output
+- memory summarization failure omits summary memory
+- API validation and session errors return structured HTTP responses
+- temporary uploaded PDF files are removed after parsing
+
+## Quick Start
+
+### Docker
+
+Create `.env` from `.env.example` and add your DeepSeek API key:
+
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+Build and start the production application:
+
+```bash
+docker compose up --build -d
+```
+
+Open:
+
+```text
+Application: http://127.0.0.1:8000
+API docs:    http://127.0.0.1:8000/docs
+```
+
+SQLite and FAISS data remain in the `pdf-agent-data` Docker volume when the container is recreated.
+
+### Local Development
+
+Install Python dependencies and start FastAPI:
+
+```bash
+pip install -r requirements.api.txt
+uvicorn app.main:app --reload
+```
+
+In a second terminal, start the React development server:
 
 ```bash
 cd frontend
@@ -93,524 +287,106 @@ npm install
 npm run dev
 ```
 
-Open the web application:
+Open `http://127.0.0.1:5173`. The Vite application connects to `http://127.0.0.1:8000` by default.
 
-```text
-http://127.0.0.1:5173
-```
+## Deployment
 
-During local Vite development, the default backend URL is `http://127.0.0.1:8000`. For a separately deployed API, copy `frontend/.env.example` to `frontend/.env` and set:
+The repository includes a Render Blueprint and a multi-stage Docker build:
 
-```env
-VITE_API_BASE_URL=https://your-api.example.com
-```
+- Node builds the React frontend.
+- Python installs API dependencies and CPU-only PyTorch.
+- The multilingual embedding model is cached in the image.
+- FastAPI serves the complete application on Render's assigned port.
+- A persistent disk is mounted at `/data` for SQLite and FAISS.
+- `/health` is used for container and platform health checks.
 
-## FastAPI Backend
-
-The FastAPI version exposes the same PDF Agent workflow through HTTP endpoints.
-
-FastAPI sessions are persisted with SQLite, while each session's FAISS vectorstore is saved to disk under `app/data/`. This keeps uploaded PDF sessions recoverable across API process restarts in a single-instance deployment.
-
-The production Docker image serves the built React application from FastAPI, so the UI, API, and SSE stream share one public origin.
-It uses `requirements.api.txt` and a CPU-only PyTorch wheel to keep the deployment image focused on the web service; `requirements.txt` still includes Streamlit for local use.
-
-Run the API server:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Open the interactive API docs:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-### API Endpoints
-
-Check service health:
-
-```http
-GET /health
-```
-
-Create a session:
-
-```http
-POST /sessions
-```
-
-Upload PDFs into a session:
-
-```http
-POST /sessions/{session_id}/pdfs
-Content-Type: multipart/form-data
-```
-
-Ask a question:
-
-```http
-POST /sessions/{session_id}/ask
-Content-Type: application/json
-```
-
-Stream workflow progress and the final answer with Server-Sent Events:
-
-```http
-POST /sessions/{session_id}/ask/stream
-Content-Type: application/json
-Accept: text/event-stream
-```
-
-The stream emits `progress` events for Planner, Specialists, Collaboration, Revision, and Reviewer, followed by one `result` event.
-
-Request body:
-
-```json
-{
-  "question": "Compare the uploaded papers and cite sources."
-}
-```
-
-Example response:
-
-```json
-{
-  "answer": "...",
-  "steps": ["compare", "source"],
-  "sources": [
-    {
-      "citation_id": "example.pdf, page 3",
-      "source": "example.pdf",
-      "page": 3,
-      "excerpt": "..."
-    }
-  ],
-  "collaboration_notes": {
-    "status": "success",
-    "issues": [],
-    "missing_information": [],
-    "recommendations": [],
-    "needs_revision": false,
-    "next_steps": []
-  },
-  "revision_count": 0,
-  "timings": {
-    "planner": 1.2,
-    "compare": 2140.5,
-    "source": 4.8,
-    "specialists": 2142.1,
-    "collaboration": 1200.4,
-    "reviewer": 1350.7,
-    "total": 4701.6
-  }
-}
-```
-
-The Memory Manager is not a standalone LangGraph node. It is one of the context sources used when specialist agents call the LLM. Retrieved PDF chunks and conversation/session memory are combined into the final prompt context.
-
-## Docker
-
-Create `.env` from `.env.example`, add your DeepSeek API key, and start the production container:
-
-```bash
-docker compose up --build -d
-```
-
-Open the application at `http://127.0.0.1:8000`. API documentation remains available at `http://127.0.0.1:8000/docs`.
-
-The Compose service stores SQLite and FAISS data in the named volume `pdf-agent-data`. Stop the service without deleting its data:
-
-```bash
-docker compose down
-```
-
-Inspect service health and logs:
-
-```bash
-docker compose ps
-docker compose logs -f pdf-agent
-```
-
-## Public Deployment
-
-The included `render.yaml` deploys the Docker image as a single Render web service in Singapore with:
-
-- a 2 GB compute instance for the Python, FAISS, and embedding-model runtime
-- a 1 GB persistent disk mounted at `/data`
-- `DEEPSEEK_API_KEY` requested as a secret during Blueprint creation
-- health checks through `/health`
-
-Click the **Deploy to Render** button near the top of this README, enter `DEEPSEEK_API_KEY`, review the paid compute and disk resources, and apply the Blueprint. Render assigns the application a public `onrender.com` URL after the image finishes building.
-
-The persistent disk is important: without it, SQLite sessions and FAISS indexes are lost during redeploys. A disk-backed service runs as a single instance, which matches this project's local SQLite architecture. Migrating metadata to managed PostgreSQL and vectors to a networked vector database is the next step before horizontal scaling.
-
-## Agent Design
-
-### Planner Agent
-
-The Planner Agent analyzes the user request and returns an ordered list of specialist steps. Clear English and Chinese intents use deterministic fast paths, while ambiguous requests fall back to the LLM planner. This preserves adaptive planning without paying for an LLM request on every question.
-
-Example:
-
-```text
-User: Compare these papers and provide sources.
-Planner: ["compare", "source"]
-```
-
-Supported specialist steps:
-
-- `qa`
-- `source`
-- `summary`
-- `keyword`
-- `compare`
-
-### Specialist Agents
-
-Each specialist agent owns one focused capability:
-
-- `QA Agent`: answers user questions using retrieved PDF context
-- `Source Agent`: deterministically formats retrieved filenames, page numbers, citations, and excerpts without an extra LLM request
-- `Summary Agent`: generates document summaries
-- `Keyword Agent`: extracts important concepts and terminology
-- `Compare Agent`: compares multiple PDFs across topics, methods, findings, and conclusions
-
-Independent specialists selected for the same planning pass run concurrently in a bounded thread pool. Their outputs are collected in the original planner order, and a revision pass executes only newly requested steps.
-
-### Collaboration Agent
-
-The Collaboration Agent runs only when multiple specialist outputs are available. It coordinates agent outputs before final review.
-
-It returns structured collaboration notes:
-
-```python
-{
-    "answer": "...",
-    "issues": [...],
-    "missing_information": [...],
-    "recommendations": [...],
-    "needs_revision": false,
-    "next_steps": []
-}
-```
-
-The collaboration layer helps the system:
-
-- merge overlapping findings
-- detect contradictions
-- identify missing evidence
-- decide whether another specialist step is worth running
-- avoid unnecessary retry for simple single-agent requests
-
-### Revision Controller
-
-The Revision Controller reads the Collaboration Agent decision and controls retry behavior.
-
-Current retry policy:
-
-```python
-MAX_REVISION_COUNT = 1
-```
-
-This keeps the workflow adaptive without allowing infinite loops.
-
-### Reviewer Agent
-
-The Reviewer Agent synthesizes specialist outputs and collaboration notes into one final answer for the user. Single-specialist answers use a pass-through fast path, while multi-agent results still use LLM synthesis for final answer quality.
-
-## Performance Fast Paths
-
-The workflow avoids redundant model requests where the result can be produced reliably without them:
-
-- Explicit planner intents are routed deterministically in English and Chinese
-- Normal direct questions route to the QA Agent without an LLM planning call
-- Source citations are formatted directly from retrieved document metadata
-- Single-specialist answers skip the redundant Reviewer LLM rewrite
-- Multiple independent specialists run in parallel instead of waiting serially
-- Ambiguous planning, multi-agent collaboration, and multi-agent review remain LLM-powered
-
-This reduces a normal QA request from three LLM calls to one. A QA request with source citations drops from five LLM calls to three while retaining Collaboration and Reviewer behavior.
-
-## Workflow Examples
-
-### Single-Agent Question
-
-```text
-User asks a direct question
-    |
-Planner -> ["qa"]
-    |
-QA Agent
-    |
-Reviewer Agent
-    |
-Final Answer
-```
-
-The system skips collaboration and retry for simple requests to reduce latency and token cost.
-
-### Multi-Agent Question With Collaboration
-
-```text
-User asks for comparison and sources
-    |
-Planner -> ["compare", "source"]
-    |
-Compare Agent
-    |
-Source Agent
-    |
-Collaboration Agent
-    |
-Revision Controller
-    |
-Reviewer Agent
-    |
-Final Answer
-```
-
-### Multi-Agent Question With Lightweight Retry
-
-```text
-Planner -> ["compare", "source"]
-    |
-Compare Agent + Source Agent
-    |
-Collaboration Agent detects missing summary
-    |
-Revision Controller adds "summary"
-    |
-Summary Agent
-    |
-Collaboration Agent
-    |
-Reviewer Agent
-    |
-Final Answer
-```
-
-## RAG Pipeline
-
-```text
-Uploaded PDFs
-    |
-PyPDFLoader
-    |
-Text splitting
-    |
-Embeddings
-    |
-FAISS vector store
-    |
-Retriever tools
-    |
-Specialist agents
-```
-
-The system retrieves relevant PDF chunks before calling the LLM, so answers are grounded in uploaded document content.
-
-## Memory
-
-The memory manager provides context for follow-up questions:
-
-- Recent conversation memory
-- LLM-generated summary of older conversation history
-- Current PDF session memory based on all uploaded PDF filenames
-- Cached conversation summaries
-
-If memory summarization fails, the system falls back gracefully instead of stopping the workflow.
-
-Retrieved PDF chunks are handled separately as `Relevant PDF Context`, so session memory describes which documents are available while retrieval context describes which chunks were selected for the current question.
-
-## UI Workflow Trace
-
-The Streamlit UI shows a workflow trace for each assistant answer, including:
-
-- planned specialist steps
-- whether collaboration was skipped or used
-- Collaboration Agent status
-- detected issues
-- missing information
-- recommendations
-- revision attempts
-- requested retry steps
-
-The React UI consumes the SSE endpoint and updates the workflow while it runs. It shows active and completed nodes, specialist steps, revision status, per-node execution time, and total request time.
-
-This makes the agent behavior observable during demos and debugging.
-
-## Error Handling
-
-The project includes graceful fallback paths:
-
-- Planner failure falls back to `["qa"]`
-- Collaboration failure skips retry and preserves available agent outputs
-- Memory summary failure skips summary memory
-- Reviewer failure returns raw specialist outputs
-- Specialist agent failures are recorded without stopping the entire workflow
-- Streamlit catches graph-level failures and returns a readable error message
-
-## Source Citations
-
-Retrieved PDF chunks are formatted with stable citation IDs before they are sent to the LLM:
-
-```text
-Citation: [example.pdf, page 3]
-PDF: example.pdf
-Page: 3
-Content:
-...
-```
-
-The assistant can then cite evidence using IDs such as `[example.pdf, page 3]`, and the Streamlit UI displays each source with its filename, page number, and excerpt.
-
-## Temporary File Handling
-
-Uploaded PDFs are written to temporary files only long enough for `PyPDFLoader` to read them. After loading, the app removes the temporary PDF path and also performs cleanup when the user clears all PDFs and chat history.
-
-## Technology Stack
-
-| Area | Technology |
-| --- | --- |
-| Language | Python |
-| Web UI | React, TypeScript, Vite |
-| Legacy UI | Streamlit |
-| API | FastAPI |
-| ASGI server | Uvicorn |
-| Agent workflow | LangGraph |
-| LLM provider | DeepSeek via OpenAI-compatible API |
-| PDF loading | LangChain PyPDFLoader |
-| Vector database | FAISS |
-| Session persistence | SQLite |
-| Retrieval | RAG |
-| Embeddings | HuggingFace sentence-transformers |
-| Environment config | python-dotenv |
+Deploy with the button at the top of this README. The provided Blueprint uses a 2 GB compute instance and a 1 GB persistent disk in Singapore. Enter `DEEPSEEK_API_KEY` as a Render secret during creation.
 
 ## Project Structure
 
 ```text
 PDF-Agent/
-|-- frontend/
-|   |-- src/
-|   |   |-- components/
-|   |   |-- api.ts
-|   |   |-- App.tsx
-|   |   |-- styles.css
-|   |-- package.json
-|   |-- vite.config.ts
+|-- agent/
+|   |-- graph_agent.py             # LangGraph nodes, routing, and concurrency
+|   |-- state.py                   # Typed workflow state
+|   |-- llm_planner.py             # Hybrid request planning
+|   |-- collaboration_agent.py     # Multi-agent coordination and retry decision
+|   |-- reviewer_agent.py          # Final synthesis and fast path
+|   `-- *_agent.py                 # Specialist agents
 |
 |-- app/
-|   |-- main.py
-|   |-- api/
-|   |   |-- routes.py
-|   |-- schemas/
-|   |   |-- requests.py
-|   |   |-- responses.py
-|   |-- services/
-|   |   |-- agent_service.py
-|   |   |-- pdf_service.py
-|   |   |-- session_store.py
+|   |-- main.py                    # FastAPI app and React static hosting
+|   |-- api/routes.py              # Session, upload, ask, and SSE endpoints
+|   |-- schemas/                   # Typed API request/response models
+|   `-- services/                  # Agent, PDF, and persistence services
 |
-|-- agent/
-|   |-- graph_agent.py
-|   |-- state.py
-|   |-- llm_planner.py
-|   |-- collaboration_agent.py
-|   |-- reviewer_agent.py
-|   |-- qa_agent.py
-|   |-- source_agent.py
-|   |-- summary_agent.py
-|   |-- keyword_agent.py
-|   |-- compare_agent.py
+|-- frontend/
+|   `-- src/                       # React UI, API client, and workflow components
 |
-|-- tools/
-|   |-- pdf_qa_tool.py
-|   |-- source_tool.py
-|   |-- pdf_summary_tool.py
-|   |-- keyword_tool.py
-|   |-- compare_tool.py
-|
-|-- utils/
-|   |-- llm_client.py
-|   |-- deepseek_client.py
-|   |-- final_synthesizer.py
-|   |-- memory.py
-|   |-- text_splitter.py
-|   |-- vectorstore.py
-|
-|-- main.py
+|-- tools/                         # Retrieval, summary, keyword, and comparison tools
+|-- utils/                         # LLM client, memory, citations, splitting, and FAISS
+|-- tests/                         # Planner, concurrency, reviewer, source, and SSE tests
 |-- Dockerfile
 |-- compose.yaml
 |-- render.yaml
 |-- requirements.api.txt
-|-- requirements.txt
-|-- README.md
+`-- requirements.txt
 ```
 
-## Installation
+## Tests
 
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Create a `.env` file:
-
-```env
-DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_MODEL=deepseek-v4-flash
-```
-
-Run the application:
-
-```bash
-streamlit run main.py
-```
-
-Or run the FastAPI and React applications in separate terminals:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-```bash
-cd frontend
-npm run dev
-```
-
-Run the agent fast-path tests:
+Run the agent fast-path and streaming tests:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-## Portfolio Highlights
+The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, and SSE workflow events.
 
-This project demonstrates:
+## Technology Stack
 
-- LangGraph stateful workflow design
-- Dynamic LLM-based agent planning
-- Hybrid deterministic/LLM routing for lower latency
-- RAG over uploaded PDF documents
-- Multi-agent specialization
-- Collaboration-based output coordination
-- Lightweight reflection/retry with bounded revision count
-- Centralized LLM client abstraction
-- Graceful error handling and fallback design
-- Observable workflow tracing in the UI
-- SSE-based real-time workflow progress and timing telemetry
-- Typed React integration with a session-based FastAPI backend
-- Tested fast paths that avoid redundant LLM calls
+| Area | Technology |
+| --- | --- |
+| Agent orchestration | LangGraph |
+| LLM | DeepSeek through an OpenAI-compatible client |
+| Backend | FastAPI, Uvicorn, Server-Sent Events |
+| Frontend | React, TypeScript, Vite |
+| Retrieval | LangChain, FAISS, HuggingFace embeddings |
+| PDF parsing | PyPDFLoader / pypdf |
+| Persistence | SQLite and persisted FAISS indexes |
+| Deployment | Docker Compose and Render Blueprint |
+
+## Optional Streamlit Prototype
+
+The repository retains the original Streamlit prototype in `main.py` for historical comparison and quick direct workflow debugging. It is not part of the production architecture or Docker deployment.
+
+```bash
+pip install -r requirements.txt
+streamlit run main.py
+```
+
+## Portfolio Focus
+
+This project demonstrates practical AI engineering beyond a basic chat interface:
+
+- typed LangGraph state and conditional routing
+- hybrid deterministic and LLM-based planning
+- concurrent specialist execution
+- structured collaboration and bounded reflection/retry
+- RAG with inspectable page-level citations
+- conversation and session memory separation
+- centralized LLM configuration and fallback behavior
+- session-based FastAPI API design
+- real-time SSE observability
+- persisted single-instance deployment with Docker
 
 ## Future Improvements
 
-- Add automated evaluation examples
-- Add unit tests for planner parsing and collaboration retry decisions
-- Add structured logging for agent workflow events
-- Improve source citation formatting
-- Add multimodal PDF support for figures and tables
+- Add an automated answer and citation evaluation suite
+- Add structured application and workflow logging
+- Move persistence to PostgreSQL and a shared vector database for horizontal scaling
+- Add authentication, session ownership, and upload quotas
+- Add multimodal extraction for figures and tables
 
 ## License
 

@@ -6,6 +6,8 @@ This project is designed as a practical AI engineering portfolio project. It foc
 
 The project includes a React web workspace, a FastAPI backend API, and the original Streamlit interface.
 
+[**Live Demo**](https://pdf-agent-bxjp.onrender.com) | [**API Docs**](https://pdf-agent-bxjp.onrender.com/docs)
+
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/remberr/PDF-Agent)
 
 ## Features

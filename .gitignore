@@ -63,3 +63,4 @@ data/uploaded_pdfs/
 .pytest_cache/
 .coverage
 htmlcov/
+evaluation-report.json

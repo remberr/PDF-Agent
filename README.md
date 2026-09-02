@@ -333,15 +333,39 @@ PDF-Agent/
 |-- frontend/
 |   `-- src/                       # React UI, API client, and workflow components
 |
+|-- evaluation/                    # Benchmark cases, metrics, and evaluation CLI
 |-- tools/                         # Retrieval, summary, keyword, and comparison tools
 |-- utils/                         # LLM client, memory, citations, splitting, and FAISS
-|-- tests/                         # Planner, concurrency, reviewer, source, and SSE tests
+|-- tests/                         # Workflow, lifecycle, and evaluation tests
 |-- Dockerfile
 |-- compose.yaml
 |-- render.yaml
 |-- requirements.api.txt
 `-- requirements.txt
 ```
+
+## Agent Evaluation
+
+The repository includes a versioned evaluation dataset and two evaluation modes:
+
+| Mode | What it measures | LLM cost |
+| --- | --- | --- |
+| `routing` | Exact Planner route accuracy across English, Chinese, multi-agent, and false-positive cases | None |
+| `live` | Full LangGraph execution, answer term recall, source recall, citation precision, revisions, and latency | Uses DeepSeek for generative cases |
+
+Run the zero-cost regression benchmark used by CI:
+
+```bash
+python -m evaluation.runner --mode routing --output evaluation-report.json
+```
+
+Run controlled end-to-end cases with optional LLM-as-a-Judge scoring:
+
+```bash
+python -m evaluation.runner --mode live --llm-judge --output evaluation-report.json
+```
+
+The judge is opt-in because it adds one LLM request per evaluated case. Use `--case source-citations` for one case or `--limit 2` for a smaller run. A non-zero exit code is returned when configured quality thresholds are missed, so the runner can act as a CI quality gate.
 
 ## Tests
 
@@ -351,7 +375,7 @@ Run the agent fast-path and streaming tests:
 python -m unittest discover -s tests -v
 ```
 
-The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, database migration, session TTL, deletion, and orphan cleanup.
+The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, evaluation metrics, database migration, session TTL, deletion, and orphan cleanup.
 
 GitHub Actions runs the backend tests and frontend production build in parallel, then verifies the complete production Docker image. Dependency and BuildKit caches keep repeat runs fast.
 
@@ -388,13 +412,13 @@ This project demonstrates practical AI engineering beyond a basic chat interface
 - RAG with inspectable page-level citations
 - conversation and session memory separation
 - centralized LLM configuration and fallback behavior
+- reproducible Agent Evaluation with deterministic CI gates and optional LLM judging
 - session-based FastAPI API design
 - real-time SSE observability
 - persisted single-instance deployment with Docker
 
 ## Future Improvements
 
-- Add an automated answer and citation evaluation suite
 - Add structured application and workflow logging
 - Move persistence to PostgreSQL and a shared vector database for horizontal scaling
 - Add authentication, session ownership, and upload quotas

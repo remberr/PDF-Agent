@@ -44,6 +44,12 @@ jobs:
       - name: Run backend tests
         run: python -m unittest discover -s tests -v
 
+      - name: Run agent routing evaluation
+        run: >-
+          python -m evaluation.runner
+          --mode routing
+          --output evaluation-report.json
+
   frontend-build:
     name: Frontend build
     runs-on: ubuntu-latest

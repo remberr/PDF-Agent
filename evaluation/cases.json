@@ -1,0 +1,116 @@
+[
+  {
+    "id": "qa-latency",
+    "question": "What latency reduction did the cache achieve?",
+    "expected_steps": ["qa"],
+    "expected_answer_terms": [["35%", "35 percent"], "latency"],
+    "expected_citations": ["performance.pdf, page 1"],
+    "documents": [
+      {
+        "source": "performance.pdf",
+        "page": 0,
+        "content": "The semantic cache reduced median response latency by 35% while preserving answer quality."
+      }
+    ],
+    "live": true
+  },
+  {
+    "id": "source-citations",
+    "question": "List the source citations.",
+    "expected_steps": ["source"],
+    "expected_answer_terms": ["performance.pdf"],
+    "expected_citations": ["performance.pdf, page 1"],
+    "documents": [
+      {
+        "source": "performance.pdf",
+        "page": 0,
+        "content": "The benchmark evaluates response latency and grounded answer quality."
+      }
+    ],
+    "live": true
+  },
+  {
+    "id": "summary-retrieval",
+    "question": "Summarize the document.",
+    "expected_steps": ["summary"],
+    "expected_answer_terms": ["retrieval", "citations"],
+    "expected_citations": ["architecture.pdf, page 2"],
+    "documents": [
+      {
+        "source": "architecture.pdf",
+        "page": 1,
+        "content": "The system combines retrieval, specialist agents, and page-level citations in a bounded workflow."
+      }
+    ],
+    "live": true
+  },
+  {
+    "id": "compare-reports",
+    "question": "Compare the two reports and cite the sources.",
+    "expected_steps": ["compare", "source"],
+    "expected_answer_terms": ["Blue", "Green"],
+    "expected_citations": [
+      "blue-report.pdf, page 1",
+      "green-report.pdf, page 2"
+    ],
+    "documents": [
+      {
+        "source": "blue-report.pdf",
+        "page": 0,
+        "content": "The Blue report uses a rule-based planner and reports predictable routing with low overhead."
+      },
+      {
+        "source": "green-report.pdf",
+        "page": 1,
+        "content": "The Green report uses an LLM planner and reports flexible routing with higher token usage."
+      }
+    ],
+    "live": true
+  },
+  {
+    "id": "keyword-routing",
+    "question": "Extract the key concepts and terminology.",
+    "expected_steps": ["keyword"],
+    "expected_answer_terms": [],
+    "expected_citations": [],
+    "documents": [],
+    "live": false
+  },
+  {
+    "id": "summary-keyword-routing",
+    "question": "Summarize the paper and extract keywords.",
+    "expected_steps": ["summary", "keyword"],
+    "expected_answer_terms": [],
+    "expected_citations": [],
+    "documents": [],
+    "live": false
+  },
+  {
+    "id": "chinese-qa-routing",
+    "question": "这篇论文的主要结论是什么？",
+    "expected_steps": ["qa"],
+    "expected_answer_terms": [],
+    "expected_citations": [],
+    "documents": [],
+    "live": false
+  },
+  {
+    "id": "chinese-summary-source-routing",
+    "question": "请总结文档并给出引用来源。",
+    "expected_steps": ["summary", "source"],
+    "expected_answer_terms": [],
+    "expected_citations": [],
+    "documents": [],
+    "live": false
+  },
+  {
+    "id": "source-false-positive",
+    "question": "What resources does the paper describe?",
+    "expected_steps": ["qa"],
+    "expected_answer_terms": [],
+    "expected_citations": [],
+    "documents": [],
+    "live": false
+  }
+]
+

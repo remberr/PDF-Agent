@@ -15,6 +15,7 @@ __pycache__
 .pytest_cache
 .coverage
 htmlcov
+evaluation-report.json
 app/data
 data/uploaded_pdfs
 frontend/node_modules

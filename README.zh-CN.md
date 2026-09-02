@@ -333,15 +333,39 @@ PDF-Agent/
 |-- frontend/
 |   `-- src/                       # React UI、API Client 与工作流组件
 |
+|-- evaluation/                    # 基准数据集、指标与评测 CLI
 |-- tools/                         # 检索、总结、关键词和对比工具
 |-- utils/                         # LLM Client、Memory、引用、分块与 FAISS
-|-- tests/                         # Planner、并发、Reviewer、Source 与 SSE 测试
+|-- tests/                         # 工作流、生命周期与 Evaluation 测试
 |-- Dockerfile
 |-- compose.yaml
 |-- render.yaml
 |-- requirements.api.txt
 `-- requirements.txt
 ```
+
+## Agent Evaluation
+
+项目内置版本化评测数据集，并提供两种评测模式：
+
+| 模式 | 评测内容 | LLM 成本 |
+| --- | --- | --- |
+| `routing` | 英文、中文、多 Agent 和误匹配用例下的 Planner 精确路由准确率 | 无 |
+| `live` | 完整 LangGraph 执行、答案关键词召回、来源召回、引用精确率、重试次数和延迟 | 生成式用例会调用 DeepSeek |
+
+运行 CI 使用的零成本回归评测：
+
+```bash
+python -m evaluation.runner --mode routing --output evaluation-report.json
+```
+
+运行受控端到端用例，并可选择 LLM-as-a-Judge 评分：
+
+```bash
+python -m evaluation.runner --mode live --llm-judge --output evaluation-report.json
+```
+
+Judge 默认关闭，因为它会为每个用例增加一次 LLM 请求。可通过 `--case source-citations` 只运行一个用例，或通过 `--limit 2` 缩小评测规模。任一质量指标未达到配置阈值时，Runner 会返回非零退出码，因此可以直接作为 CI 质量门禁。
 
 ## 测试
 
@@ -351,7 +375,7 @@ PDF-Agent/
 python -m unittest discover -s tests -v
 ```
 
-测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、数据库迁移、Session TTL、主动删除和孤立索引清理。
+测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、Evaluation 指标、数据库迁移、Session TTL、主动删除和孤立索引清理。
 
 GitHub Actions 会并行执行后端测试和前端生产构建，全部通过后再验证完整的生产 Docker 镜像。依赖缓存与 BuildKit 缓存可加快后续运行。
 
@@ -388,13 +412,13 @@ streamlit run main.py
 - 带可检查页码引用的 RAG
 - 对话记忆与 Session 文档上下文分离
 - 统一的 LLM 配置与降级处理
+- 可复现的 Agent Evaluation、确定性 CI 门禁与可选 LLM Judge
 - 基于 Session 的 FastAPI API 设计
 - SSE 实时可观测性
 - 使用 Docker 的单实例持久化部署
 
 ## 后续优化
 
-- 增加自动化答案质量和引用质量评估
 - 增加结构化应用日志和工作流日志
 - 使用 PostgreSQL 和共享向量数据库支持横向扩展
 - 增加身份认证、Session 所有权和上传配额

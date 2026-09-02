@@ -12,6 +12,7 @@ import {
   askQuestionStream,
   checkHealth,
   createSession,
+  deleteSession,
   getSession,
   uploadPdfs,
 } from "./api";
@@ -128,6 +129,7 @@ function App() {
           return;
         } catch {
           localStorage.removeItem(SESSION_STORAGE_KEY);
+          localStorage.removeItem(conversationKey(storedSessionId));
         }
       }
 
@@ -197,7 +199,14 @@ function App() {
     setQuestion("");
     setWorkflowProgress(undefined);
     try {
+      const previousSessionId = session?.session_id;
       const created = await createSession();
+
+      if (previousSessionId) {
+        await deleteSession(previousSessionId).catch(() => undefined);
+        localStorage.removeItem(conversationKey(previousSessionId));
+      }
+
       localStorage.setItem(SESSION_STORAGE_KEY, created.session_id);
       setSession(emptySession(created.session_id));
       setTurns([]);
@@ -367,6 +376,7 @@ function App() {
             onClick={handleNewSession}
             title={t.session.new}
             aria-label={t.session.new}
+            disabled={asking || uploading}
           >
             <Plus size={19} />
           </button>

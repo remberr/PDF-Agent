@@ -185,6 +185,7 @@ Memory Manager 是 Prompt 上下文组件，而不是独立的 LangGraph 节点�
 | `GET` | `/health` | 服务健康检查 |
 | `POST` | `/sessions` | 创建 PDF 分析 Session |
 | `GET` | `/sessions/{session_id}` | 查看 Session 元数据 |
+| `DELETE` | `/sessions/{session_id}` | 删除 Session 及其 FAISS 索引 |
 | `POST` | `/sessions/{session_id}/pdfs` | 上传一个或多个 PDF |
 | `POST` | `/sessions/{session_id}/ask` | 执行工作流并返回完整响应 |
 | `POST` | `/sessions/{session_id}/ask/stream` | 流式返回工作流进度和最终结果 |
@@ -208,6 +209,9 @@ data: {"answer":"...","sources":[...],"timings":{...}}
 - SQLite 保存 Session ID、已上传文件名、对话历史、文档数量和 Vectorstore 路径。
 - 每个 Session 都拥有独立的持久化 FAISS 索引。
 - `PDF_AGENT_DATA_DIR` 控制数据根目录，默认值为 `app/data`。
+- Session 默认在 24 小时无活动后过期，每次读取或写入都会刷新 TTL。
+- 定时清理任务默认每小时删除过期的 SQLite 记录和孤立 FAISS 目录。
+- `SESSION_TTL_SECONDS` 和 `SESSION_CLEANUP_INTERVAL_SECONDS` 用于配置这两个时间。
 - Docker 和 Render 将 `/data` 挂载为持久化卷。
 - 当前架构面向单应用实例；横向扩展时应将元数据和向量迁移到共享托管服务。
 
@@ -255,6 +259,8 @@ React 工作区提供：
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
+SESSION_TTL_SECONDS=86400
+SESSION_CLEANUP_INTERVAL_SECONDS=3600
 ```
 
 构建并启动生产应用：
@@ -300,6 +306,7 @@ npm run dev
 - 多语言 Embedding 模型被预先缓存到镜像中。
 - FastAPI 在 Render 分配的端口上提供完整应用。
 - `/data` 挂载持久化磁盘，用于保存 SQLite 和 FAISS。
+- 生命周期清理任务会删除长时间无活动的 Session 和孤立索引。
 - 容器和部署平台通过 `/health` 执行健康检查。
 
 点击本文档顶部的按钮即可部署。Blueprint 默认使用新加坡区域的 2 GB 计算实例和 1 GB 持久化磁盘。创建服务时需要将 `DEEPSEEK_API_KEY` 填写为 Render Secret。
@@ -343,7 +350,7 @@ PDF-Agent/
 python -m unittest discover -s tests -v
 ```
 
-测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化和 SSE 工作流事件。
+测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、数据库迁移、Session TTL、主动删除和孤立索引清理。
 
 ## 技术栈
 

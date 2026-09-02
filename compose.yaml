@@ -8,6 +8,8 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
       PDF_AGENT_DATA_DIR: /data
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-86400}
+      SESSION_CLEANUP_INTERVAL_SECONDS: ${SESSION_CLEANUP_INTERVAL_SECONDS:-3600}
       CORS_ORIGINS: http://127.0.0.1:8000,http://localhost:8000
     volumes:
       - pdf-agent-data:/data

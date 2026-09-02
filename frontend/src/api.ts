@@ -53,6 +53,10 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(detailMessage(detail));
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return (await response.json()) as T;
 }
 
@@ -79,6 +83,12 @@ export function createSession(): Promise<{ session_id: string }> {
 
 export function getSession(sessionId: string): Promise<SessionDetail> {
   return apiRequest<SessionDetail>(`/sessions/${sessionId}`);
+}
+
+export function deleteSession(sessionId: string): Promise<void> {
+  return apiRequest<void>(`/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
 }
 
 export function uploadPdfs(

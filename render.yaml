@@ -15,6 +15,10 @@ services:
         value: deepseek-v4-flash
       - key: PDF_AGENT_DATA_DIR
         value: /data
+      - key: SESSION_TTL_SECONDS
+        value: "86400"
+      - key: SESSION_CLEANUP_INTERVAL_SECONDS
+        value: "3600"
     disk:
       name: pdf-agent-data
       mountPath: /data

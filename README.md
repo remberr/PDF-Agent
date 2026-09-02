@@ -185,6 +185,7 @@ The backend exposes session-based PDF analysis over HTTP:
 | `GET` | `/health` | Service health check |
 | `POST` | `/sessions` | Create a PDF analysis session |
 | `GET` | `/sessions/{session_id}` | Inspect session metadata |
+| `DELETE` | `/sessions/{session_id}` | Delete a session and its FAISS index |
 | `POST` | `/sessions/{session_id}/pdfs` | Upload one or more PDFs |
 | `POST` | `/sessions/{session_id}/ask` | Run the workflow and return one response |
 | `POST` | `/sessions/{session_id}/ask/stream` | Stream workflow progress and the final result |
@@ -208,6 +209,9 @@ data: {"answer":"...","sources":[...],"timings":{...}}
 - SQLite stores session IDs, uploaded filenames, chat history, document counts, and vectorstore paths.
 - Each session has a persisted FAISS index.
 - `PDF_AGENT_DATA_DIR` controls the storage root and defaults to `app/data`.
+- Sessions expire after 24 hours of inactivity by default; each read or write refreshes the TTL.
+- A scheduled cleanup removes expired SQLite rows and orphaned FAISS directories every hour.
+- `SESSION_TTL_SECONDS` and `SESSION_CLEANUP_INTERVAL_SECONDS` configure both intervals.
 - Docker and Render mount `/data` as a persistent volume.
 - This design targets a single application instance. Horizontal scaling should move metadata and vectors to shared managed services.
 
@@ -255,6 +259,8 @@ Create `.env` from `.env.example` and add your DeepSeek API key:
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
+SESSION_TTL_SECONDS=86400
+SESSION_CLEANUP_INTERVAL_SECONDS=3600
 ```
 
 Build and start the production application:
@@ -300,6 +306,7 @@ The repository includes a Render Blueprint and a multi-stage Docker build:
 - The multilingual embedding model is cached in the image.
 - FastAPI serves the complete application on Render's assigned port.
 - A persistent disk is mounted at `/data` for SQLite and FAISS.
+- Idle sessions and orphaned indexes are removed by the lifecycle cleanup task.
 - `/health` is used for container and platform health checks.
 
 Deploy with the button at the top of this README. The provided Blueprint uses a 2 GB compute instance and a 1 GB persistent disk in Singapore. Enter `DEEPSEEK_API_KEY` as a Render secret during creation.
@@ -343,7 +350,7 @@ Run the agent fast-path and streaming tests:
 python -m unittest discover -s tests -v
 ```
 
-The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, and SSE workflow events.
+The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, database migration, session TTL, deletion, and orphan cleanup.
 
 ## Technology Stack
 

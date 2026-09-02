@@ -36,14 +36,14 @@ RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /data "${HF_HOME}" \
     && chown -R appuser:appuser /data /home/appuser
 
-COPY --chown=appuser:appuser . ./
-COPY --from=frontend-builder --chown=appuser:appuser \
-    /frontend/dist ./frontend/dist
-
 USER appuser
 
 # Bake the embedding model into the image so the first PDF upload is ready to run.
-RUN python -c "from utils.vectorstore import get_embeddings; get_embeddings()"
+RUN python -c "from langchain_huggingface import HuggingFaceEmbeddings; HuggingFaceEmbeddings(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
+
+COPY --chown=appuser:appuser . ./
+COPY --from=frontend-builder --chown=appuser:appuser \
+    /frontend/dist ./frontend/dist
 
 EXPOSE 8000
 

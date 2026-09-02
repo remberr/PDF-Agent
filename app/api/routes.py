@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.schemas.requests import AskRequest
@@ -13,7 +13,7 @@ from app.schemas.responses import (
 )
 from app.services.agent_service import ask_pdf_agent, stream_pdf_agent
 from app.services.pdf_service import load_pdf_into_session
-from app.services.session_store import create_session, get_session
+from app.services.session_store import create_session, delete_session, get_session
 
 
 router = APIRouter()
@@ -50,6 +50,14 @@ def get_pdf_session(session_id: str):
         "has_vectorstore": session["vectorstore"] is not None,
         "total_documents": session.get("document_count", 0)
     }
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_pdf_session(session_id: str):
+    if not delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/sessions/{session_id}/pdfs", response_model=UploadResponse)

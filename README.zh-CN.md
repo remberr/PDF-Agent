@@ -211,7 +211,7 @@ data: {"answer":"...","sources":[...],"timings":{...},"usage":{...}}
 - 每个 HTTP 响应都包含 `X-Request-ID`；请求日志、节点日志和模型调用日志使用同一 Request ID 与 Session ID 关联，并覆盖完整 SSE 生命周期。
 - LLM 日志记录操作、模型、延迟、输入/输出 Token、缓存命中/未命中 Token、命中率、计价时段和预估美元费用。Prompt、PDF 正文、API Key 和答案不会进入日志。
 - API 与 SSE 结果通过 `usage` 返回请求级汇总，并按 `by_model` 和 `by_operation` 拆分。Workflow 面板展示调用数、总 Token、缓存命中率、预估费用和各操作用量。
-- Token 数量采用模型服务返回的实际 Usage；费用根据 [DeepSeek 当前峰谷和缓存计价](https://api-docs.deepseek.com/quick_start/pricing/)估算。官方价格变化后，可同时设置三个 `LLM_*_COST_PER_1M_TOKENS` 环境变量覆盖内置单价。
+- Token 数量采用模型服务返回的实际 Usage；费用根据 [DeepSeek 当前峰谷和缓存计价](https://api-docs.deepseek.com/quick_start/pricing/)估算。可选的 `LLM_*_COST_PER_1M_TOKENS` 覆盖值表示峰时单价，仍应用谷时倍率。未知模型或缺失/矛盾的用量会显示为不可估价，不视为免费。
 
 代表性事件包括 `http_request_completed`、`agent_node_completed`、`llm_call_completed`、`agent_workflow_completed`、`pdf_indexed` 和 `session_cleanup_completed`。
 
@@ -279,7 +279,7 @@ React 工作区提供：
 
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL=deepseek-flash
 LOG_LEVEL=INFO
 SESSION_TTL_SECONDS=86400
 SESSION_CLEANUP_INTERVAL_SECONDS=3600
@@ -381,22 +381,22 @@ python -m evaluation.runner --mode live --case source-citations --output evaluat
 python -m evaluation.runner --mode live --llm-judge --output evaluation/reports/live.json
 ```
 
-`evaluation/real_pdf_cases.json` 新增 30 条用例，覆盖 QA、Summary、Compare、Source、Keyword、多 Agent 组合、跨页检索、跨文档比较、信息遗漏、无答案和证据不足。`pdf_manifest.json` 固定所提供 GPT-2、BERT、Transformer 文件的名称、物理页数及 SHA-256。PDF、提取文本、索引和报告仅在本地保存，不提交仓库。真实 PDF 默认报告保存在已忽略的 `evaluation/reports/`，与受控报告区分。可用 `--dataset`、`--manifest`、`--case`（可重复）、`--limit`、`--output` 自定义执行。
+`evaluation/real_pdf_cases.json` 包含 30 条用例（其中 6 条中文问题）、60 项关键事实和 90 处页面证据摘录，覆盖 QA、Summary、Compare、Source、Keyword、多 Agent 组合、跨页检索、跨文档比较、信息遗漏、无答案和证据不足。`pdf_manifest.json` 固定所提供 GPT-2、BERT、Transformer 文件的名称、物理页数及 SHA-256。PDF、提取文本、索引和报告仅在本地保存，不提交仓库。真实 PDF 默认报告保存在已忽略的 `evaluation/reports/`，与受控报告区分。可用 `--dataset`、`--manifest`、`--case`（可重复）、`--limit`、`--output` 自定义执行。
 
 将下方目录换成三份 PDF 所在位置：
 
 ```bash
 # 不加载 Embedding、不调用模型：检查哈希、页码和原文证据。
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --validate-only
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --validate-only
 
 # 使用生产 Embedding 和真实 FAISS 检索，不生成答案、不调用 Judge。
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --retrieval-only
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --retrieval-only
 
 # LangGraph Source Agent + 真实 FAISS，无 DeepSeek 请求。
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --case real-source-attention --output evaluation/reports/real-source.json
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --case real-source-attention --output evaluation/reports/real-source.json
 
 # 付费：先设置 DEEPSEEK_API_KEY，再显式开启真实生成与 Judge。
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --allow-paid-api --llm-judge --output evaluation/reports/real-pdf.json
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --allow-paid-api --llm-judge --output evaluation/reports/real-pdf.json
 ```
 
 Embedding 首次运行可能从 Hugging Face 下载生产模型，之后复用缓存；设置 `HF_HUB_OFFLINE=1` 可强制仅用本地权重。FAISS 按 `pdf_files` 文档集合在内存中构建，每个集合在同一次执行中复用。该集合等价于生产会话上传的 PDF，不筛选参考页；整个集合的全部页面及干扰内容都进入索引。工作流仅收到问题、文件名和检索器，不收到参考答案或标注。生产 Agent 的查询策略和检索数量保持原样，因此摘要或比较可能遗漏事实，评估会如实暴露这些问题。
@@ -413,19 +413,22 @@ Embedding 首次运行可能从 Hugging Face 下载生产模型，之后复用�
 
 ### 用量与成本计算
 
-单价集中在 `utils/pricing.py`，于 2026-10-18 核对 [DeepSeek 官方美元价格](https://api-docs.deepseek.com/quick_start/pricing/)。`deepseek-flash` 与旧名称 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 使用相同 Flash 费率；保留既有 chat/reasoner 别名，不修改项目配置的模型目标。
+单价集中在 `utils/pricing.py`，于 2026-10-18 核对 [DeepSeek 官方美元价格](https://api-docs.deepseek.com/quick_start/pricing/)。`deepseek-flash` 与旧名称 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 使用相同 Flash 费率；保留既有 chat/reasoner 别名，新配置默认使用 `deepseek-flash`，保留用户显式设置的模型目标。
 
-| USD / 1M Tokens | 谷时 | 峰时 |
-| --- | ---: | ---: |
-| Cache Hit | 0.003 | 0.006 |
-| Cache Miss | 0.15 | 0.30 |
-| Output | 0.60 | 1.20 |
+| 模型 | USD / 1M Tokens | 谷时 | 峰时 |
+| --- | --- | ---: | ---: |
+| `deepseek-flash` | Cache Hit | 0.003 | 0.006 |
+| `deepseek-flash` | Cache Miss | 0.15 | 0.30 |
+| `deepseek-flash` | Output | 0.60 | 1.20 |
+| `deepseek-v4-pro` | Cache Hit | 0.022 | 0.044 |
+| `deepseek-v4-pro` | Cache Miss | 0.66 | 1.32 |
+| `deepseek-v4-pro` | Output | 1.98 | 3.96 |
 
-费用为 `(命中 Token × 命中单价 + 未命中 Token × 未命中单价 + 输出 Token × 输出单价) / 1,000,000`。服务未提供未命中数时，使用输入中未归为命中的部分。按带时区的**请求开始时间**转换北京时间，周一至周五 `[09:00,12:00)`、`[14:00,18:00)` 为峰时，排除中国完整公共假期；周末（含调休上班的周末）全天谷时。
+费用为 `(命中 Token × 命中单价 + 未命中 Token × 未命中单价 + 输出 Token × 输出单价) / 1,000,000`。输入/输出计数必须是非负整数。只提供一个缓存计数时，使用输入总数推算另一项；非零输入同时缺失两个缓存计数、计数无效或输入/输出/缓存总数矛盾时，费用估算不可用。明确返回的零用量仍然有效。按带时区的**请求开始时间**转换北京时间，周一至周五 `[09:00,12:00)`、`[14:00,18:00)` 为峰时，排除中国完整公共假期；周末（含调休上班的周末）全天谷时。
 
 `utils/china_holidays.json` 当前覆盖 **2026 年**，记录[国务院通知](https://www.gov.cn/zhengce/content/202511/content_7047090.htm)及[政府镜像](https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html)。新增年份应引用权威来源并记录核对日期，运行时不联网查询节假日。在可能的峰时窗口，未知年份、日历读取失败、无效价格或未知模型会返回 `cost_status: unavailable`、`cost_estimate_available: false`、解释性的 `pricing_warnings` 及 `estimated_total_cost_usd: null`。已知周末或窗口外仍能确定谷时。为兼容旧接口，数值字段 `estimated_cost_usd` / `known_cost_usd` 保留已知部分的费用小计；**unavailable 状态下的小计 0 不代表免费**。
 
-同时设置 `LLM_CACHE_HIT_COST_PER_1M_TOKENS`、`LLM_CACHE_MISS_COST_PER_1M_TOKENS`、`LLM_OUTPUT_COST_PER_1M_TOKENS` 为非负有限数值，可覆盖所有时段，包括未知模型/年份；只设置部分值时，仅在内置时段可判断的情况下覆盖相应单价，无效值显式不可估价。估算不包含本地 Embedding 算力成本，也不能替代服务商账单。
+`LLM_CACHE_HIT_COST_PER_1M_TOKENS`、`LLM_CACHE_MISS_COST_PER_1M_TOKENS`、`LLM_OUTPUT_COST_PER_1M_TOKENS` 均表示当前受支持模型的**峰时单价**，可配置任意部分或全部非负有限数值。先合并覆盖值，再应用峰谷倍率，因此谷时始终减半；覆盖不能绕过未知模型或日历检查，无效值显式不可估价。不设置覆盖值即可保留各模型的内置单价；选择 Pro 时复制 Flash 价格也会覆盖 Pro 的费率。估算不包含本地 Embedding 算力成本，也不能替代服务商账单。
 
 ## 测试
 
@@ -435,14 +438,14 @@ Embedding 首次运行可能从 Hugging Face 下载生产模型，之后复用�
 python -m unittest discover -s tests -v
 ```
 
-测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、结构化日志、Token/费用核算、Evaluation 指标、数据库迁移、Session TTL、主动删除和孤立索引清理。
+测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、结构化日志、峰谷边界与时区、周末和公共假期、模型别名、完整/部分单价覆盖、缓存计费、不可估价状态、Agent/Judge 用量隔离、Evaluation 指标、数据库迁移、Session TTL、主动删除和孤立索引清理。
 
 普通套件使用测试 Embedding 和模型响应替身验证集成连接，不调用 DeepSeek。本地真实 PDF 与付费集成测试分别标记，默认跳过；有 API Key 本身不会开启付费测试。PowerShell 可显式执行：
 
 ```powershell
 # 本地 PDF + 已缓存的生产 Embedding，不付费。
 $env:HF_HUB_OFFLINE="1"
-$env:PDF_AGENT_EVAL_PDF_DIR="C:/Users/31701/Downloads/pdf"
+$env:PDF_AGENT_EVAL_PDF_DIR="C:/path/to/pdfs"
 $env:PDF_AGENT_RUN_LOCAL_PDF_TESTS="1"
 python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
 
@@ -451,6 +454,24 @@ $env:PDF_AGENT_RUN_PAID_TESTS="1"
 python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
 Remove-Item Env:PDF_AGENT_RUN_PAID_TESTS
 ```
+
+### 本地验证记录 — 2026-10-18
+
+以下是当前版本的本地实测，不代表新环境或线上部署一定得到相同结果。最终计费修正复用了未受影响的 PDF/检索检查，并重新运行完整无付费套件及路由评估。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 完整无付费套件 | 共 50 项：48 项通过；本地 PDF 和付费集成各跳过 1 项 |
+| 定价专项测试 | 13 项通过，已包含在完整套件内 |
+| Routing 基准 | 9/9 通过，无模型调用 |
+| 受控 Source Live | 通过，无模型调用 |
+| 本地生产 PDF/Embedding/FAISS 集成 | 单独显式开启后通过 |
+| 参考证据来源校验 | 三份 PDF / 51 页；90 处摘录全部匹配标注页面，语义标注仍待人工审核 |
+| 纯检索诊断 | 已执行全部 30 条，无答案生成或 Judge |
+| 三条真实 Source 工作流 | 路由准确率 1.0、来源召回 0.6667、引用精确率 1.0；`real-source-nsp` 未召回 BERT 物理第 4 页，质量门禁未通过 |
+| 付费 DeepSeek 生成与 Judge | 未运行，未标记为通过 |
+
+来源检索缺口保留在基准结果中。参考标注仍为待审核状态，节假日日历目前覆盖 2026 年；后续应更新日历/价格来源并完成人工标注审核，再将结果解读为基于已验证 Ground Truth 的评估。
 
 GitHub Actions 会并行执行后端测试和前端生产构建，全部通过后再验证完整的生产 Docker 镜像。依赖缓存与 BuildKit 缓存可加快后续运行。
 

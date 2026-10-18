@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime, timezone
 from time import perf_counter
 
 from dotenv import load_dotenv
@@ -67,10 +68,12 @@ def chat_with_deepseek(
     """
 
     requested_model = model or get_deepseek_model()
+    client = get_deepseek_client()
+    call_started_at = datetime.now(timezone.utc)
     started_at = perf_counter()
 
     try:
-        response = get_deepseek_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=requested_model,
             messages=[
                 {
@@ -81,10 +84,13 @@ def chat_with_deepseek(
             temperature=temperature
         )
 
-    except LLMClientError:
-        raise
-
     except Exception as exc:
+        # Failed HTTP calls can have incurred tokens. Retain supplied usage;
+        # absent provider usage is unknown cost, never a free call.
+        record_llm_usage(
+            requested_model, operation, getattr(exc, "usage", None),
+            (perf_counter() - started_at) * 1000, at=call_started_at,
+        )
         log_event(
             logger,
             logging.ERROR,
@@ -105,6 +111,7 @@ def chat_with_deepseek(
         operation,
         getattr(response, "usage", None),
         duration_ms,
+        at=call_started_at,
     )
     log_event(
         logger,

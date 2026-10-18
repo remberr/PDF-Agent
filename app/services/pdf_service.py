@@ -15,6 +15,17 @@ from utils.observability import log_event
 logger = logging.getLogger(__name__)
 
 
+def parse_pdf_documents(pdf_path, source_name):
+    """Production parser shared by uploads and local PDF evaluation.
+
+    Preserve loader page metadata (zero-based) and stable public filenames.
+    """
+    docs = PyPDFLoader(str(pdf_path)).load()
+    for doc in docs:
+        doc.metadata["source"] = source_name
+    return docs
+
+
 async def load_pdf_into_session(session, uploaded_file: UploadFile):
     """
     Load one uploaded PDF into a session and rebuild its vectorstore.
@@ -40,11 +51,7 @@ async def load_pdf_into_session(session, uploaded_file: UploadFile):
             tmp_file.write(pdf_bytes)
             pdf_path = tmp_file.name
 
-        loader = PyPDFLoader(pdf_path)
-        docs = loader.load()
-
-        for doc in docs:
-            doc.metadata["source"] = uploaded_file.filename
+        docs = parse_pdf_documents(pdf_path, uploaded_file.filename)
 
         session["loaded_pdfs"].append(uploaded_file.filename)
         session["document_count"] = session.get("document_count", 0) + len(docs)

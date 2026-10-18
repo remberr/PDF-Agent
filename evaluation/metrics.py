@@ -1,6 +1,8 @@
 import re
 from statistics import mean
 
+from evaluation.usage import merge_usage
+
 
 CITATION_PATTERN = re.compile(
     r"\[([^\[\]\n]+?,\s*page\s+\d+)\]",
@@ -9,6 +11,8 @@ CITATION_PATTERN = re.compile(
 
 
 def normalize_citation(value):
+    if isinstance(value, dict):
+        value = f"{value['source']}, page {value['page']}"
     return " ".join(str(value).casefold().split())
 
 
@@ -76,7 +80,7 @@ def evaluate_output(case, output):
     else:
         citation_precision = 0.0 if expected_citations else 1.0
 
-    return {
+    metrics = {
         "route_exact_match": float(actual_steps == expected_steps),
         "answer_nonempty": float(bool(answer.strip())),
         "answer_term_recall": round(
@@ -91,9 +95,15 @@ def evaluate_output(case, output):
             4,
         ),
         "citation_precision": round(citation_precision, 4),
+        "expected_citation_recall": round(_recall(expected_citations, cited), 4),
         "revision_count": output.get("revision_count", 0),
         "latency_ms": output.get("latency_ms", 0),
     }
+    # Keyword overlap remains a legacy controlled-fixture diagnostic, never a
+    # factual quality score for real PDFs.
+    if 'pdf_files' in case:
+        metrics.pop('answer_term_recall')
+    return metrics
 
 
 def summarize_results(results, mode):
@@ -108,18 +118,11 @@ def summarize_results(results, mode):
         ),
     }
 
-    if mode == "live":
-        usage_summaries = [
-            result.get("usage", {}) for result in results
-        ]
+    if mode in ("live", "real-pdf"):
         summary.update(
             {
                 "answer_success_rate": round(
                     mean(metric["answer_nonempty"] for metric in metrics),
-                    4,
-                ),
-                "answer_term_recall": round(
-                    mean(metric["answer_term_recall"] for metric in metrics),
                     4,
                 ),
                 "source_recall": round(
@@ -137,21 +140,20 @@ def summarize_results(results, mode):
                 "total_revisions": sum(
                     metric["revision_count"] for metric in metrics
                 ),
-                "llm_calls": sum(
-                    usage.get("llm_calls", 0) for usage in usage_summaries
-                ),
-                "total_tokens": sum(
-                    usage.get("total_tokens", 0) for usage in usage_summaries
-                ),
-                "estimated_cost_usd": round(
-                    sum(
-                        usage.get("estimated_cost_usd", 0.0)
-                        for usage in usage_summaries
-                    ),
-                    8,
-                ),
             }
         )
+        if mode == 'live':
+            summary['answer_term_recall'] = round(mean(m['answer_term_recall'] for m in metrics), 4)
+        if all('expected_citation_recall' in m for m in metrics):
+            summary['expected_citation_recall'] = round(mean(m['expected_citation_recall'] for m in metrics), 4)
+
+    for field in ('agent_usage', 'judge_usage'):
+        summary[field] = merge_usage([result.get(field, result.get('usage', {}) if field == 'agent_usage' else {}) for result in results])
+    summary['total_usage'] = merge_usage([summary['agent_usage'], summary['judge_usage']])
+    # Legacy usage and flat fields continue to refer to Agent usage.
+    summary['usage'] = summary['agent_usage']
+    for field in ('llm_calls', 'total_tokens', 'estimated_cost_usd', 'cost_estimate_available', 'cost_status'):
+        summary[field] = summary['agent_usage'][field]
 
     judge_results = [
         result["llm_judge"]
@@ -159,22 +161,19 @@ def summarize_results(results, mode):
         if result.get("llm_judge")
     ]
     if judge_results:
+        dimensions = [d for d in ('correctness', 'completeness', 'groundedness', 'relevance') if all(d in r for r in judge_results)]
         summary["llm_judge"] = {
             dimension: round(
                 mean(result[dimension] for result in judge_results),
                 2,
             )
-            for dimension in ("correctness", "groundedness", "relevance")
+            for dimension in dimensions
         }
         summary["llm_judge_average"] = round(
             mean(
                 score
                 for result in judge_results
-                for score in (
-                    result["correctness"],
-                    result["groundedness"],
-                    result["relevance"],
-                )
+                for score in (result[d] for d in dimensions)
             ),
             2,
         )

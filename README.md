@@ -367,30 +367,65 @@ PDF-Agent/
 
 ## Agent Evaluation
 
-The repository includes a versioned evaluation dataset and two evaluation modes:
+Three modes share the existing Planner and LangGraph workflow:
 
-| Mode | What it measures | LLM cost |
+| Mode | Input and purpose | Provider calls |
 | --- | --- | --- |
-| `routing` | Exact Planner route accuracy across English, Chinese, multi-agent, and false-positive cases | None |
-| `live` | Full LangGraph execution, answer term recall, source recall, citation precision, revisions, and latency | Uses DeepSeek for generative cases |
-
-Run the zero-cost regression benchmark used by CI:
+| `routing` | Original `evaluation/cases.json`; exact route regression | None for the bundled deterministic cases |
+| `live` | Original controlled documents and `StaticVectorStore`; workflow regression | Generative cases and optional Judge |
+| `real-pdf` | Local PDFs → production PyPDFLoader → 1200/250 character splitting → production multilingual MiniLM embeddings → FAISS → LangGraph | Generative cases and optional Judge; requires explicit paid opt-in |
 
 ```bash
 python -m evaluation.runner --mode routing --output evaluation-report.json
+python -m evaluation.runner --mode live --case source-citations --output evaluation/reports/live-source.json
+python -m evaluation.runner --mode live --llm-judge --output evaluation/reports/live.json
 ```
 
-Run controlled end-to-end cases with optional LLM-as-a-Judge scoring:
+`evaluation/real_pdf_cases.json` contains 30 cases covering QA, Summary, Compare, Source, Keyword, combinations, cross-page retrieval, cross-document comparisons, missing details, unanswerable questions and insufficient evidence. `pdf_manifest.json` pins the supplied GPT-2, BERT and Transformer PDFs by filename, physical page count and SHA-256. Keep the files locally; PDFs, extracted text, indexes and reports must not be committed. Default real-PDF reports go to ignored `evaluation/reports/`, separately from controlled reports. `--dataset`, `--manifest`, `--case` (repeatable), `--limit` and `--output` customize a run.
+
+Replace the directory below with the location of the three supplied PDFs:
 
 ```bash
-python -m evaluation.runner --mode live --llm-judge --output evaluation-report.json
+# No embeddings or LLM: check hashes, page ranges and exact evidence excerpts.
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --validate-only
+
+# Production embeddings + real FAISS retrieval; no generation or Judge.
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --retrieval-only
+
+# LangGraph Source specialist over real FAISS, without provider calls.
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --case real-source-attention --output evaluation/reports/real-source.json
+
+# PAID: set DEEPSEEK_API_KEY, then explicitly enable generation and judging.
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --allow-paid-api --llm-judge --output evaluation/reports/real-pdf.json
 ```
 
-The runner prints the complete report to the terminal and writes `evaluation-report.json` to the repository root. Its `summary` contains aggregate quality, latency, LLM-call, token, and estimated-cost metrics; each entry in `cases` contains the route, deterministic scores, sources, and request-level `usage` when running in `live` mode.
+The first embedding run may download the production Hugging Face model; subsequent runs reuse the model cache. Set `HF_HUB_OFFLINE=1` to require cached weights. FAISS indexes are built in memory per `pdf_files` scope and reused during the run. A scope is equivalent to the PDFs uploaded into a session; it does not select pages or supply reference facts to the Agent. All scoped pages enter the index, including distractors. Only the question, filenames and retriever enter workflow state. Production specialist retrieval limits and query strategies are unchanged, so a broad summary or comparison may miss required facts; the evaluation should expose those failures.
 
-In GitHub, open **Actions**, select the latest **CI** run, and inspect **Backend tests** to see the routing evaluation output. CI currently uses the report as a quality gate but does not upload `evaluation-report.json` as a downloadable artifact.
+Each case has `required_facts` (ID, statement, supporting citation IDs), `expected_citations` (filename, **one-based physical PDF page**, exact evidence excerpts), `forbidden_claims`, `reference_answer`, `answerability`, `expected_behavior` and `annotation`. The legacy controlled `documents[].page` stays zero-based. BERT physical page 4 is printed proceedings page 4174, not page 4174 of the PDF.
 
-The judge is opt-in because it adds one LLM request per evaluated case. Use `--case source-citations` for one case or `--limit 2` for a smaller run. A non-zero exit code is returned when configured quality thresholds are missed, so the runner can act as a CI quality gate.
+**References are provisional.** They were authored after inspecting the supplied text and checking numeric tables visually, then checked against exact page text. They are marked `pending_human_review` / `human_verified: false`, not verified Ground Truth. Quote matching proves provenance, not entailment, completeness or absence. Review the original page, scope, qualifications, fact-to-evidence mapping and refusal expectations before recording a human reviewer/date and changing the annotation status. In particular, absence of a search term alone does not prove unanswerability. Evidence and candidate answers are treated as untrusted content by the Judge.
+
+The optional Judge evaluates semantic correctness, completeness/omissions, evidence support and relevance on 1–5 scales; it checks required facts, forbidden claims, citation issues and calibrated refusals. It accepts faithful paraphrases and does not use keyword overlap as a factual quality score. The Judge also flags annotation ambiguity. Controlled live mode retains legacy answer-term recall; real-PDF reports omit that metric. Deterministic citation metrics only measure page overlap and citation membership, not semantic support. `--min-source-recall`, `--min-citation-precision`, `--min-route-accuracy` and `--min-llm-judge-score` control gates. Judge failure fails a judged run even when other calls succeeded.
+
+Reports use `schema_version: 2`. Each case and `summary` include independent `agent_usage`, `judge_usage` and `total_usage`, with calls, input/output/total tokens, cache hit/miss tokens, estimated USD cost and `by_model` / `by_operation`. Legacy `usage` and flat summary cost/token/call fields remain **Agent-only**. `duration_ms` sums LLM call durations (parallel calls can overlap); `elapsed_ms` measures Agent or Judge wall time. Corpus parsing and indexing time are reported separately under `corpus`. A malformed Judge response retains its recorded usage plus `judge_status: failed` and `llm_judge_error`. A transport failure without provider usage retains a counted attempt and unknown cost. Calls count logical SDK invocations; SDK-internal retry attempts and their unreturned usage cannot be reconstructed.
+
+Validation/retrieval reports use separate mode names, `passed: null`, `generation_executed: false` and `quality_status: not_evaluated`. Retrieval diagnostics include expected-page recall; they are not quality passes. A normal run without a Judge has `quality_status: structural_metrics_only`; a real-PDF judged run remains `provisional_llm_judged` until human reference review. `passed` refers only to the reported thresholds, not certified factual correctness. Reports are printed as JSON and saved when `--output` is supplied (real-PDF mode has a default output). A nonzero exit code means a missed gate or execution/configuration failure.
+
+### Cost estimation
+
+Prices are centralized in `utils/pricing.py`, verified against [DeepSeek's official USD pricing](https://api-docs.deepseek.com/quick_start/pricing/) on 2026-10-18. `deepseek-flash` and legacy `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` share Flash rates; existing chat/reasoner aliases remain supported. The configured model target is unchanged.
+
+| USD per 1M tokens | Off-peak | Peak |
+| --- | ---: | ---: |
+| Cache hit | 0.003 | 0.006 |
+| Cache miss | 0.15 | 0.30 |
+| Output | 0.60 | 1.20 |
+
+Cost = `(hit_tokens × hit_rate + miss_tokens × miss_rate + output_tokens × output_rate) / 1,000,000`. Missing cache-miss counts default to the input tokens not classified as cache hits. Rates use the timezone-aware **request start timestamp**, converted to Beijing time. Peak windows are Monday–Friday `[09:00, 12:00)` and `[14:00, 18:00)`, excluding full Chinese public holiday breaks. Weekends, including makeup working weekends, are off-peak.
+
+`utils/china_holidays.json` currently covers **2026**, with the [State Council notice](https://www.gov.cn/zhengce/content/202511/content_7047090.htm) and a [government mirror](https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html). Add each newly published year with its authoritative source and reviewed date. No runtime holiday network call is made. During a possible peak window, an unknown year, unreadable calendar, invalid price or unknown model yields `cost_status: unavailable`, `cost_estimate_available: false`, explanatory `pricing_warnings` and `estimated_total_cost_usd: null`. A known weekend or outside-window call is still unambiguously off-peak. For backward compatibility, numeric `estimated_cost_usd` / `known_cost_usd` retain only the priced subtotal; **zero with unavailable status does not mean free**.
+
+Set all three `LLM_CACHE_HIT_COST_PER_1M_TOKENS`, `LLM_CACHE_MISS_COST_PER_1M_TOKENS` and `LLM_OUTPUT_COST_PER_1M_TOKENS` variables to finite nonnegative prices to override rates at all times, including unknown models/calendar years. Partial overrides replace the specified rates only when a valid built-in tier can be determined. Invalid values are explicitly unavailable. Estimates exclude local embedding compute and cannot replace the provider invoice.
 
 ## Tests
 
@@ -401,6 +436,21 @@ python -m unittest discover -s tests -v
 ```
 
 The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, structured logs, token/cost accounting, evaluation metrics, database migration, session TTL, deletion, and orphan cleanup.
+
+The ordinary suite uses test embeddings and mocked provider responses for integration wiring; it never calls DeepSeek. Local production-PDF and paid integration tests are separately skipped unless explicitly enabled. On PowerShell:
+
+```powershell
+# Local PDFs + cached production embeddings, no paid request.
+$env:HF_HUB_OFFLINE="1"
+$env:PDF_AGENT_EVAL_PDF_DIR="C:/Users/31701/Downloads/pdf"
+$env:PDF_AGENT_RUN_LOCAL_PDF_TESTS="1"
+python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
+
+# PAID integration: requires DEEPSEEK_API_KEY and the PDF directory above.
+$env:PDF_AGENT_RUN_PAID_TESTS="1"
+python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
+Remove-Item Env:PDF_AGENT_RUN_PAID_TESTS
+```
 
 GitHub Actions runs the backend tests and frontend production build in parallel, then verifies the complete production Docker image. Dependency and BuildKit caches keep repeat runs fast.
 

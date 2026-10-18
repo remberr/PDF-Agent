@@ -12,32 +12,9 @@ from threading import Lock
 from time import perf_counter
 from uuid import uuid4
 
+from utils.pricing import MODEL_ALIASES, MODEL_PRICING, PRICE_ENV_VARS, get_model_pricing, _is_peak_time
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
-PRICE_ENV_VARS = {
-    "cache_hit": "LLM_CACHE_HIT_COST_PER_1M_TOKENS",
-    "cache_miss": "LLM_CACHE_MISS_COST_PER_1M_TOKENS",
-    "output": "LLM_OUTPUT_COST_PER_1M_TOKENS",
-}
-
-# Peak USD prices per 1M tokens. Off-peak prices are half of these values.
-# Override them through PRICE_ENV_VARS when provider pricing changes.
-MODEL_PRICING = {
-    "deepseek-v4-flash": {
-        "cache_hit": 0.014,
-        "cache_miss": 0.44,
-        "output": 1.32,
-    },
-    "deepseek-v4-pro": {
-        "cache_hit": 0.044,
-        "cache_miss": 1.32,
-        "output": 3.96,
-    },
-}
-MODEL_ALIASES = {
-    "deepseek-chat": "deepseek-v4-flash",
-    "deepseek-reasoner": "deepseek-v4-flash",
-}
 
 _request_id_var = ContextVar("request_id", default=None)
 _session_id_var = ContextVar("session_id", default=None)
@@ -134,6 +111,8 @@ class UsageBucket:
     cache_hit_tokens: int = 0
     cache_miss_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    duration_ms: float = 0.0
+    unpriced_calls: int = 0
 
     def add(self, usage):
         self.llm_calls += 1
@@ -143,6 +122,8 @@ class UsageBucket:
         self.cache_hit_tokens += usage["cache_hit_tokens"]
         self.cache_miss_tokens += usage["cache_miss_tokens"]
         self.estimated_cost_usd += usage["estimated_cost_usd"]
+        self.duration_ms += usage.get("duration_ms", 0.0)
+        self.unpriced_calls += int(not usage["cost_estimate_available"])
 
     def to_dict(self):
         return {
@@ -152,7 +133,15 @@ class UsageBucket:
             "total_tokens": self.total_tokens,
             "cache_hit_tokens": self.cache_hit_tokens,
             "cache_miss_tokens": self.cache_miss_tokens,
-            "estimated_cost_usd": round(self.estimated_cost_usd, 8),
+            # Numeric subtotal retained for API compatibility. Check availability
+            # before displaying this as the complete estimated cost.
+            "estimated_cost_usd": round(self.estimated_cost_usd, 10),
+            "known_cost_usd": round(self.estimated_cost_usd, 10),
+            "estimated_total_cost_usd": round(self.estimated_cost_usd, 10) if self.unpriced_calls == 0 else None,
+            "duration_ms": round(self.duration_ms, 2),
+            "unpriced_calls": self.unpriced_calls,
+            "cost_estimate_available": self.unpriced_calls == 0,
+            "cost_status": "available" if self.unpriced_calls == 0 else "unavailable",
         }
 
 
@@ -166,6 +155,7 @@ class UsageTracker:
         self._by_operation = defaultdict(UsageBucket)
         self._pricing_tiers = set()
         self._unpriced_calls = 0
+        self._pricing_warnings = set()
 
     def record(self, usage):
         with self._lock:
@@ -175,6 +165,7 @@ class UsageTracker:
             self._pricing_tiers.add(usage["pricing_tier"])
             if not usage["cost_estimate_available"]:
                 self._unpriced_calls += 1
+                self._pricing_warnings.add(usage.get("pricing_reason") or "Provider usage unavailable; incurred cost is unknown.")
 
     def summary(self):
         with self._lock:
@@ -190,6 +181,7 @@ class UsageTracker:
                     "currency": "USD",
                     "cost_estimate_available": self._unpriced_calls == 0,
                     "pricing_tiers": sorted(self._pricing_tiers),
+                    "pricing_warnings": sorted(self._pricing_warnings),
                     "by_model": {
                         key: bucket.to_dict()
                         for key, bucket in sorted(self._by_model.items())
@@ -234,58 +226,6 @@ def observability_context(request_id=None, session_id=None, usage_tracker=None):
             variable.reset(token)
 
 
-def _is_peak_time(at):
-    return at.weekday() < 5 and (
-        1 <= at.hour < 4 or 6 <= at.hour < 10
-    )
-
-
-def _configured_prices():
-    configured = {}
-    for key, env_name in PRICE_ENV_VARS.items():
-        value = os.getenv(env_name)
-        if value is not None:
-            try:
-                configured[key] = float(value)
-            except ValueError:
-                continue
-    return configured
-
-
-def get_model_pricing(model, at=None):
-    """Return effective per-million-token prices for one model call."""
-
-    configured = _configured_prices()
-    if len(configured) == len(PRICE_ENV_VARS):
-        return {
-            **configured,
-            "tier": "configured",
-            "available": True,
-        }
-
-    canonical_model = MODEL_ALIASES.get(model, model)
-    peak_prices = MODEL_PRICING.get(canonical_model)
-    if peak_prices is None:
-        return {
-            "cache_hit": 0.0,
-            "cache_miss": 0.0,
-            "output": 0.0,
-            "tier": "unavailable",
-            "available": False,
-        }
-
-    at = at or datetime.now(timezone.utc)
-    is_peak = _is_peak_time(at)
-    multiplier = 1.0 if is_peak else 0.5
-    return {
-        key: value * multiplier
-        for key, value in peak_prices.items()
-    } | {
-        "tier": "peak" if is_peak else "off_peak",
-        "available": True,
-    }
-
-
 def _usage_payload(usage):
     if usage is None:
         return {}
@@ -313,7 +253,7 @@ def _safe_int(value):
         return 0
 
 
-def record_llm_usage(model, operation, usage, duration_ms):
+def record_llm_usage(model, operation, usage, duration_ms, at=None):
     """Normalize provider usage, estimate cost, and update the active tracker."""
 
     payload = _usage_payload(usage)
@@ -335,7 +275,7 @@ def record_llm_usage(model, operation, usage, duration_ms):
     )
     cache_miss_tokens += unclassified
 
-    pricing = get_model_pricing(model)
+    pricing = get_model_pricing(model, at=at)
     estimated_cost = (
         cache_hit_tokens * pricing["cache_hit"]
         + cache_miss_tokens * pricing["cache_miss"]
@@ -353,7 +293,9 @@ def record_llm_usage(model, operation, usage, duration_ms):
             cache_hit_tokens / input_tokens if input_tokens else 0.0,
             4,
         ),
-        "estimated_cost_usd": round(estimated_cost, 10),
+        "estimated_cost_usd": round(estimated_cost, 10) if payload else 0.0,
+        "pricing_reason": pricing.get("reason"),
+        "call_started_at": at.isoformat() if at else None,
         "currency": "USD",
         "pricing_tier": pricing["tier"],
         "cost_estimate_available": pricing["available"] and bool(payload),

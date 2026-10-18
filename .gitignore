@@ -64,3 +64,6 @@ data/uploaded_pdfs/
 .coverage
 htmlcov/
 evaluation-report.json
+.evaluation-local/
+evaluation/reports/
+evaluation/pdfs/

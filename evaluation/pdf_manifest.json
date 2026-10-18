@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "page_numbering": "One-based physical PDF pages, not printed proceedings page labels.",
+  "files": [
+    {"filename": "language-models.pdf", "title": "Language Models are Unsupervised Multitask Learners", "pages": 24, "sha256": "d9d852e2894556e73f53cb22b7c605a9643d6f0b19bf604b429ed6192fa24f4e"},
+    {"filename": "N19-1423.pdf", "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding", "pages": 16, "sha256": "987545ffb087f1ece898142c403a516baeabeb70ce19089397fac6f7db12c3d4"},
+    {"filename": "NIPS-2017-attention-is-all-you-need-Paper.pdf", "title": "Attention Is All You Need", "pages": 11, "sha256": "d87d482d5ae7960e2e43d7dd6d21377e60e73e8fce1bf2a01aff7aca8a08c537"}
+  ]
+}

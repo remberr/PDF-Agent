@@ -367,30 +367,65 @@ PDF-Agent/
 
 ## Agent Evaluation
 
-项目内置版本化评测数据集，并提供两种评测模式：
+三种模式复用现有 Planner 和 LangGraph 工作流：
 
-| 模式 | 评测内容 | LLM 成本 |
+| 模式 | 输入与用途 | 模型请求 |
 | --- | --- | --- |
-| `routing` | 英文、中文、多 Agent 和误匹配用例下的 Planner 精确路由准确率 | 无 |
-| `live` | 完整 LangGraph 执行、答案关键词召回、来源召回、引用精确率、重试次数和延迟 | 生成式用例会调用 DeepSeek |
-
-运行 CI 使用的零成本回归评测：
+| `routing` | 原 `evaluation/cases.json`，检查精确路由 | 内置确定性用例不调用模型 |
+| `live` | 原受控 Document + `StaticVectorStore`，检查工作流回归 | 生成式用例及可选 Judge 调用 DeepSeek |
+| `real-pdf` | 本地 PDF → 生产 PyPDFLoader → 1200/250 字符切分 → 生产多语言 MiniLM Embedding → FAISS → LangGraph | 生成和 Judge 需要显式开启付费请求 |
 
 ```bash
 python -m evaluation.runner --mode routing --output evaluation-report.json
+python -m evaluation.runner --mode live --case source-citations --output evaluation/reports/live-source.json
+python -m evaluation.runner --mode live --llm-judge --output evaluation/reports/live.json
 ```
 
-运行受控端到端用例，并可选择 LLM-as-a-Judge 评分：
+`evaluation/real_pdf_cases.json` 新增 30 条用例，覆盖 QA、Summary、Compare、Source、Keyword、多 Agent 组合、跨页检索、跨文档比较、信息遗漏、无答案和证据不足。`pdf_manifest.json` 固定所提供 GPT-2、BERT、Transformer 文件的名称、物理页数及 SHA-256。PDF、提取文本、索引和报告仅在本地保存，不提交仓库。真实 PDF 默认报告保存在已忽略的 `evaluation/reports/`，与受控报告区分。可用 `--dataset`、`--manifest`、`--case`（可重复）、`--limit`、`--output` 自定义执行。
+
+将下方目录换成三份 PDF 所在位置：
 
 ```bash
-python -m evaluation.runner --mode live --llm-judge --output evaluation-report.json
+# 不加载 Embedding、不调用模型：检查哈希、页码和原文证据。
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --validate-only
+
+# 使用生产 Embedding 和真实 FAISS 检索，不生成答案、不调用 Judge。
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --retrieval-only
+
+# LangGraph Source Agent + 真实 FAISS，无 DeepSeek 请求。
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --case real-source-attention --output evaluation/reports/real-source.json
+
+# 付费：先设置 DEEPSEEK_API_KEY，再显式开启真实生成与 Judge。
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --allow-paid-api --llm-judge --output evaluation/reports/real-pdf.json
 ```
 
-Runner 会将完整报告打印到终端，并在项目根目录生成 `evaluation-report.json`。其中 `summary` 包含整体质量、延迟、LLM 调用数、Token 和预估成本；`live` 模式下，`cases` 中的每个用例还包含实际路由、确定性指标、来源和请求级 `usage`。
+Embedding 首次运行可能从 Hugging Face 下载生产模型，之后复用缓存；设置 `HF_HUB_OFFLINE=1` 可强制仅用本地权重。FAISS 按 `pdf_files` 文档集合在内存中构建，每个集合在同一次执行中复用。该集合等价于生产会话上传的 PDF，不筛选参考页；整个集合的全部页面及干扰内容都进入索引。工作流仅收到问题、文件名和检索器，不收到参考答案或标注。生产 Agent 的查询策略和检索数量保持原样，因此摘要或比较可能遗漏事实，评估会如实暴露这些问题。
 
-在 GitHub 中进入 **Actions**，打开最新的 **CI** 运行，并查看 **Backend tests**，即可看到路由评测输出。CI 当前会将评测结果用作质量门禁，但不会把 `evaluation-report.json` 上传为可下载的 Artifact。
+每条用例包含 `required_facts`（事实 ID、陈述、支撑引用 ID）、`expected_citations`（文件名、**从 1 开始的物理 PDF 页码**、原文摘录）、`forbidden_claims`、`reference_answer`、`answerability`、`expected_behavior` 和 `annotation`。原受控数据的 `documents[].page` 仍从 0 开始。BERT 的物理第 4 页印刷页码为 4174，两者不能混用。
 
-Judge 默认关闭，因为它会为每个用例增加一次 LLM 请求。可通过 `--case source-citations` 只运行一个用例，或通过 `--limit 2` 缩小评测规模。任一质量指标未达到配置阈值时，Runner 会返回非零退出码，因此可以直接作为 CI 质量门禁。
+**标注仍待人工审核。** 标注基于本地原文阅读、数字表格目视核对及摘录匹配编写，状态为 `pending_human_review` / `human_verified: false`，不是已经人工验证的 Ground Truth。原文匹配只验证来源，不能证明语义蕴含、事实完整性或信息确实不存在。人工复核应检查原始页面、文档范围、限定条件、事实与证据对应关系及拒答要求，再记录审核人、日期并更新状态；尤其不能仅凭检索词缺失证明无答案。Judge 将证据和候选答案中的内容视为不可信数据，不执行其中的指令。
+
+可选 Judge 按语义评估事实正确性、完整性/遗漏、证据支持和相关性（各 1–5 分），检查每项事实、禁止断言、引用问题及合理拒答，并标记标注歧义。忠实改写可得分，不以关键词出现判断事实正确。受控 Live 保留旧关键词召回指标，真实 PDF 报告不使用该指标。确定性来源/引用指标只检查页码交集及引用是否来自检索结果，不能证明语义支持。`--min-source-recall`、`--min-citation-precision`、`--min-route-accuracy` 和 `--min-llm-judge-score` 控制门禁；任何 Judge 失败都会令开启 Judge 的评估失败。
+
+报告使用 `schema_version: 2`。每条 Case 与 `summary` 都有独立的 `agent_usage`、`judge_usage`、`total_usage`，包含调用次数、输入/输出/总 Token、缓存命中/未命中 Token、美元估价及 `by_model` / `by_operation`。旧 `usage` 和 Summary 顶层费用、调用数、Token 字段继续仅表示 **Agent 用量**。`duration_ms` 累加 LLM 调用耗时（并发请求可能重叠），`elapsed_ms` 为 Agent 或 Judge 的墙钟耗时；PDF 解析及建索引时间单列于 `corpus`。Judge 非法 JSON 等失败仍保留已记录的用量、`judge_status: failed` 和 `llm_judge_error`。请求异常而服务未返回 Usage 时保留调用尝试并标记成本未知。调用次数是逻辑 SDK 调用次数，不能还原 SDK 内部重试及未返回的计费数据。
+
+校验/纯检索报告使用独立模式名，`passed: null`、`generation_executed: false`、`quality_status: not_evaluated`；检索报告提供参考页召回诊断，不将执行成功冒充生成质量通过。不启用 Judge 的普通运行标记 `structural_metrics_only`；真实 PDF 的 Judge 结果在人工审核标注前标记 `provisional_llm_judged`。`passed` 只表示报告中所列阈值通过，不代表事实正确性得到认证。报告打印为 JSON，并按 `--output` 保存（真实模式有默认路径）；门禁失败或执行/配置出错返回非零退出码。
+
+### 用量与成本计算
+
+单价集中在 `utils/pricing.py`，于 2026-10-18 核对 [DeepSeek 官方美元价格](https://api-docs.deepseek.com/quick_start/pricing/)。`deepseek-flash` 与旧名称 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 使用相同 Flash 费率；保留既有 chat/reasoner 别名，不修改项目配置的模型目标。
+
+| USD / 1M Tokens | 谷时 | 峰时 |
+| --- | ---: | ---: |
+| Cache Hit | 0.003 | 0.006 |
+| Cache Miss | 0.15 | 0.30 |
+| Output | 0.60 | 1.20 |
+
+费用为 `(命中 Token × 命中单价 + 未命中 Token × 未命中单价 + 输出 Token × 输出单价) / 1,000,000`。服务未提供未命中数时，使用输入中未归为命中的部分。按带时区的**请求开始时间**转换北京时间，周一至周五 `[09:00,12:00)`、`[14:00,18:00)` 为峰时，排除中国完整公共假期；周末（含调休上班的周末）全天谷时。
+
+`utils/china_holidays.json` 当前覆盖 **2026 年**，记录[国务院通知](https://www.gov.cn/zhengce/content/202511/content_7047090.htm)及[政府镜像](https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html)。新增年份应引用权威来源并记录核对日期，运行时不联网查询节假日。在可能的峰时窗口，未知年份、日历读取失败、无效价格或未知模型会返回 `cost_status: unavailable`、`cost_estimate_available: false`、解释性的 `pricing_warnings` 及 `estimated_total_cost_usd: null`。已知周末或窗口外仍能确定谷时。为兼容旧接口，数值字段 `estimated_cost_usd` / `known_cost_usd` 保留已知部分的费用小计；**unavailable 状态下的小计 0 不代表免费**。
+
+同时设置 `LLM_CACHE_HIT_COST_PER_1M_TOKENS`、`LLM_CACHE_MISS_COST_PER_1M_TOKENS`、`LLM_OUTPUT_COST_PER_1M_TOKENS` 为非负有限数值，可覆盖所有时段，包括未知模型/年份；只设置部分值时，仅在内置时段可判断的情况下覆盖相应单价，无效值显式不可估价。估算不包含本地 Embedding 算力成本，也不能替代服务商账单。
 
 ## 测试
 
@@ -401,6 +436,21 @@ python -m unittest discover -s tests -v
 ```
 
 测试覆盖确定性规划、中文意图路由、关键词误匹配防护、Specialist 并发执行、Reviewer 快路径、来源格式化、SSE 工作流事件、结构化日志、Token/费用核算、Evaluation 指标、数据库迁移、Session TTL、主动删除和孤立索引清理。
+
+普通套件使用测试 Embedding 和模型响应替身验证集成连接，不调用 DeepSeek。本地真实 PDF 与付费集成测试分别标记，默认跳过；有 API Key 本身不会开启付费测试。PowerShell 可显式执行：
+
+```powershell
+# 本地 PDF + 已缓存的生产 Embedding，不付费。
+$env:HF_HUB_OFFLINE="1"
+$env:PDF_AGENT_EVAL_PDF_DIR="C:/Users/31701/Downloads/pdf"
+$env:PDF_AGENT_RUN_LOCAL_PDF_TESTS="1"
+python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
+
+# 付费集成：还需配置 DEEPSEEK_API_KEY。
+$env:PDF_AGENT_RUN_PAID_TESTS="1"
+python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
+Remove-Item Env:PDF_AGENT_RUN_PAID_TESTS
+```
 
 GitHub Actions 会并行执行后端测试和前端生产构建，全部通过后再验证完整的生产 Docker 镜像。依赖缓存与 BuildKit 缓存可加快后续运行。
 

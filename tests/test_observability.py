@@ -43,9 +43,9 @@ class PricingTests(unittest.TestCase):
             )
 
         self.assertEqual(peak_prices["tier"], "peak")
-        self.assertEqual(peak_prices["cache_miss"], 0.44)
+        self.assertEqual(peak_prices["cache_miss"], 0.30)
         self.assertEqual(off_peak_prices["tier"], "off_peak")
-        self.assertEqual(off_peak_prices["cache_miss"], 0.22)
+        self.assertEqual(off_peak_prices["cache_miss"], 0.15)
 
     def test_usage_tracker_calculates_cache_aware_cost(self):
         tracker = new_usage_tracker()

@@ -1,0 +1,1886 @@
+[
+  {
+    "id": "real-qa-transformer-stacks",
+    "question": "How many layers are in the Transformer encoder and decoder, and how does decoder masking prevent access to future tokens?",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "cross_page",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "The encoder and decoder each have six layers.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 2",
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 3"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Decoder self-attention masks subsequent positions; with offset output embeddings, predictions use only earlier known outputs.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 3"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 2,
+        "evidence": [
+          "Encoder: The encoder is composed of a stack of N = 6 identical layers. Each layer has two sub-layers. The first is a multi-head self-attention mechanism"
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 3,
+        "evidence": [
+          "Decoder: The decoder is also composed of a stack ofN = 6 identical layers. In addition to the two sub-layers in each encoder layer, the decoder inserts a third sub-layer, which performs multi-head attention over the output of the encoder stack.",
+          "We also modify the self-attention sub-layer in the decoder stack to prevent positions from attending to subsequent positions. This masking, combined with fact that the output embeddings are offset by one position, ensures that the predictions for positioni can depend only on the known outputs at positions less thani."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The encoder has twelve layers.",
+      "The decoder can attend to future output tokens."
+    ],
+    "reference_answer": "The encoder and decoder each have six layers. Decoder self-attention masks subsequent positions; with offset output embeddings, predictions use only earlier known outputs.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-attention-scaling",
+    "question": "Why does Transformer scaled dot-product attention divide by the square root of the key dimension before softmax?",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "mechanism"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Dot products are divided by sqrt(d_k) before softmax produces weights on values.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Large key dimensions can produce large dot products and push softmax into regions with extremely small gradients.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 4,
+        "evidence": [
+          "query with all keys, divide each by√dk, and apply a softmax function to obtain the weights on the values.",
+          "We suspect that for large values of dk, the dot products grow large in magnitude, pushing the softmax function into regions where it has extremely small gradients 4."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The paper multiplies dot products by sqrt(d_k)."
+    ],
+    "reference_answer": "Dot products are divided by sqrt(d_k) before softmax produces weights on values. Large key dimensions can produce large dot products and push softmax into regions with extremely small gradients.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-attention-heads",
+    "question": "What number of parallel attention heads and per-head key/value dimensions does the Transformer use?",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "numeric"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "The model uses eight heads, with d_k=d_v=64 and d_model=512.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 5"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 5,
+        "evidence": [
+          "In this work we employ h = 8 parallel attention layers, or heads. For each of these we use dk =dv =dmodel/h = 64. Due to the reduced dimension of each head, the total computational cost is similar to that of single-head attention with full dimensionality."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The base Transformer uses sixteen attention heads."
+    ],
+    "reference_answer": "The model uses eight heads, with d_k=d_v=64 and d_model=512.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-transformer-training",
+    "question": "How long were Transformer base and big models trained, on what hardware, and what EN-DE and EN-FR BLEU scores did the big model achieve?",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "cross_page",
+      "numeric",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Training used one machine with eight NVIDIA P100 GPUs; base used 100,000 steps or 12 hours, big 300,000 steps or 3.5 days.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 7"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Transformer big achieved 28.4 EN-DE BLEU and 41.0 EN-FR BLEU on WMT 2014; the French experiment used dropout 0.1 rather than 0.3.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 8"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 7,
+        "evidence": [
+          "We trained our models on one machine with 8 NVIDIA P100 GPUs. For our base models using the hyperparameters described throughout the paper, each training step took about 0.4 seconds. We trained the base models for a total of 100,000 steps or 12 hours. For our big models,(described on the bottom line of table 3), step time was 1.0 seconds. The big models were trained for 300,000 steps (3.5 days)."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 8,
+        "evidence": [
+          "On the WMT 2014 English-to-German translation task, the big transformer model (Transformer (big) in Table 2) outperforms the best previously reported models (including ensembles) by more than 2.0 BLEU, establishing a new state-of-the-art BLEU score of 28.4. The configuration of this model is listed in the bottom line of Table 3. Training took 3.5 days on 8 P100 GPUs.",
+          "On the WMT 2014 English-to-French translation task, our big model achieves a BLEU score of 41.0, outperforming all of the previously published single models, at less than 1/4 the training cost of the previous state-of-the-art model. The Transformer (big) model trained for English-to-French used dropout ratePdrop = 0.1, instead of 0.3."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The base model required 3.5 days.",
+      "The big model obtained 41.0 EN-DE BLEU."
+    ],
+    "reference_answer": "Training used one machine with eight NVIDIA P100 GPUs; base used 100,000 steps or 12 hours, big 300,000 steps or 3.5 days. Transformer big achieved 28.4 EN-DE BLEU and 41.0 EN-FR BLEU on WMT 2014; the French experiment used dropout 0.1 rather than 0.3.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-bert-sizes",
+    "question": "What are the layers, hidden size, attention heads and parameter counts of BERT BASE and BERT LARGE?",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "numeric",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "BERT BASE has 12 layers, hidden size 768, 12 heads and 110M parameters.",
+        "citations": [
+          "N19-1423.pdf, page 3"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "BERT LARGE has 24 layers, hidden size 1024, 16 heads and 340M parameters.",
+        "citations": [
+          "N19-1423.pdf, page 3"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 3,
+        "evidence": [
+          "We primarily report results on two model sizes: BERTBASE (L=12, H=768, A=12, Total Parameters=110M) and BERTLARGE (L=24, H=1024, A=16, Total Parameters=340M)."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "BERT BASE has 340M parameters."
+    ],
+    "reference_answer": "BERT BASE has 12 layers, hidden size 768, 12 heads and 110M parameters. BERT LARGE has 24 layers, hidden size 1024, 16 heads and 340M parameters.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-bert-masking",
+    "question": "BERT 的掩码语言模型如何选取待预测位置？请说明 [MASK]、随机词及保留原词三种处理的比例。",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "omission",
+      "numeric"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "15% of token positions are chosen for prediction. Among these, 80% become MASK, 10% random tokens and 10% stay unchanged.",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "The training data generator chooses 15% of the token positions at random for prediction. If the i-th token is chosen, we replace thei-th token with (1) the [MASK] token 80% of the time (2) a random token 10% of the time (3) the unchanged i-th token 10% of the time."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "All chosen tokens are replaced by MASK.",
+      "80% of all input tokens are masked."
+    ],
+    "reference_answer": "15% of token positions are chosen for prediction. Among these, 80% become MASK, 10% random tokens and 10% stay unchanged.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-bert-nsp",
+    "question": "How does BERT construct positive and negative next sentence prediction examples?",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "numeric"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "For half the examples B is the actual next sentence after A (IsNext); for the other half B is a random sentence from the corpus (NotNext).",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "Specifically, when choosing the sentences A and B for each pretraining example, 50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus (labeled as NotNext)."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "NSP uses 80% positive and 20% negative examples."
+    ],
+    "reference_answer": "For half the examples B is the actual next sentence after A (IsNext); for the other half B is a random sentence from the corpus (NotNext).",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-bert-input-data",
+    "question": "Which vocabulary, input embedding components and pre-training corpora does the BERT paper describe?",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "cross_page",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "BERT uses WordPiece with a 30,000-token vocabulary.",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Each token input sums token, segment and position embeddings.",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "Pre-training uses BooksCorpus with 800M words and English Wikipedia with 2,500M words.",
+        "citations": [
+          "N19-1423.pdf, page 5"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "We use WordPiece embeddings (Wu et al., 2016) with a 30,000 token vocabulary.",
+          "For a given token, its input representation is constructed by summing the corresponding token, segment, and position embeddings."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 5,
+        "evidence": [
+          "For the pre-training corpus we use the BooksCorpus (800M words) (Zhu et al., 2015) and English Wikipedia (2,500M words)."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "BERT uses WebText as its reported pre-training corpus."
+    ],
+    "reference_answer": "BERT uses WordPiece with a 30,000-token vocabulary. Each token input sums token, segment and position embeddings. Pre-training uses BooksCorpus with 800M words and English Wikipedia with 2,500M words.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-webtext-filter",
+    "question": "WebText 如何筛选 Reddit 链接？清洗后数据量多大，为何排除 Wikipedia？",
+    "pdf_files": [
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "omission",
+      "dataset"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Links were outbound Reddit links receiving at least three karma.",
+        "citations": [
+          "language-models.pdf, page 3"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "The preliminary version excludes links after December 2017 and contains slightly over 8 million documents, totaling 40 GB after cleaning and deduplication.",
+        "citations": [
+          "language-models.pdf, page 3"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "Wikipedia was removed to reduce overlap complications with evaluation tasks.",
+        "citations": [
+          "language-models.pdf, page 3",
+          "language-models.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "language-models.pdf",
+        "page": 3,
+        "evidence": [
+          "we scraped all outbound links from Reddit, a social media platform, which received at least 3 karma.",
+          "All results presented in this paper use a preliminary version of WebText which does not include links created after Dec 2017 and which after de-duplication and some heuristic based cleaning contains slightly over 8 million documents for a total of 40 GB of text.",
+          "We removed all Wikipedia documents from WebText since it is a common data source for other datasets and could complicate analysis"
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 4,
+        "evidence": [
+          "lapping training data with test evaluation tasks."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "WebText includes all of Wikipedia.",
+      "The final cleaned corpus contains 45 million documents."
+    ],
+    "reference_answer": "Links were outbound Reddit links receiving at least three karma. The preliminary version excludes links after December 2017 and contains slightly over 8 million documents, totaling 40 GB after cleaning and deduplication. Wikipedia was removed to reduce overlap complications with evaluation tasks.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-gpt2-configuration",
+    "question": "What layer count, model width, vocabulary size and context length are reported for the largest GPT-2 model?",
+    "pdf_files": [
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "numeric",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "The largest table entry has 1542M parameters, 48 layers and d_model 1600.",
+        "citations": [
+          "language-models.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Vocabulary size is 50,257 and context length is 1024 tokens, increased from 512.",
+        "citations": [
+          "language-models.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "language-models.pdf",
+        "page": 4,
+        "evidence": [
+          "1542M 48 1600 Table 2. Architecture hyperparameters for the 4 model sizes.",
+          "The vocabulary is expanded to 50,257. We also increase the context size from 512 to 1024 tokens and a larger batchsize of 512 is used."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The largest GPT-2 context is 512 tokens."
+    ],
+    "reference_answer": "The largest table entry has 1542M parameters, 48 layers and d_model 1600. Vocabulary size is 50,257 and context length is 1024 tokens, increased from 512.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-summary-transformer",
+    "question": "Summarize the Transformer paper, covering architecture, parallel computation and the two translation results.",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "summary"
+    ],
+    "tags": [
+      "summary",
+      "cross_page",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "The Transformer relies on attention and dispenses with recurrence and convolutions.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 1"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Self-attention connects positions with a constant number of sequential operations versus O(n) for recurrence.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 6"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "The big model achieves 28.4 EN-DE and 41.0 EN-FR BLEU on WMT 2014.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 8"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 1,
+        "evidence": [
+          "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 6,
+        "evidence": [
+          "As noted in Table 1, a self-attention layer connects all positions with a constant number of sequentially executed operations, whereas a recurrent layer requires O(n) sequential operations."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 8,
+        "evidence": [
+          "On the WMT 2014 English-to-German translation task, the big transformer model (Transformer (big) in Table 2) outperforms the best previously reported models (including ensembles) by more than 2.0 BLEU, establishing a new state-of-the-art BLEU score of 28.4. The configuration of this model is listed in the bottom line of Table 3. Training took 3.5 days on 8 P100 GPUs.",
+          "On the WMT 2014 English-to-French translation task, our big model achieves a BLEU score of 41.0, outperforming all of the previously published single models, at less than 1/4 the training cost of the previous state-of-the-art model. The Transformer (big) model trained for English-to-French used dropout ratePdrop = 0.1, instead of 0.3."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The architecture requires recurrent layers."
+    ],
+    "reference_answer": "The Transformer relies on attention and dispenses with recurrence and convolutions. Self-attention connects positions with a constant number of sequential operations versus O(n) for recurrence. The big model achieves 28.4 EN-DE and 41.0 EN-FR BLEU on WMT 2014.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-summary-bert",
+    "question": "Summarize the BERT paper, covering bidirectional pre-training, both training tasks, the corpora and downstream fine-tuning.",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "summary"
+    ],
+    "tags": [
+      "summary",
+      "cross_page",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "BERT conditions on left and right context in every layer and supports downstream fine-tuning with a small output layer.",
+        "citations": [
+          "N19-1423.pdf, page 1"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Pre-training uses masked language modeling and next sentence prediction.",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "Training corpora are BooksCorpus and English Wikipedia.",
+        "citations": [
+          "N19-1423.pdf, page 5"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 1,
+        "evidence": [
+          "BERT is designed to pretrain deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers.",
+          "As a result, the pre-trained BERT model can be finetuned with just one additional output layer to create state-of-the-art models for a wide range of tasks, such as question answering and language inference, without substantial taskspecific architecture modifications."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "The training data generator chooses 15% of the token positions at random for prediction. If the i-th token is chosen, we replace thei-th token with (1) the [MASK] token 80% of the time (2) a random token 10% of the time (3) the unchanged i-th token 10% of the time.",
+          "Specifically, when choosing the sentences A and B for each pretraining example, 50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus (labeled as NotNext)."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 5,
+        "evidence": [
+          "For the pre-training corpus we use the BooksCorpus (800M words) (Zhu et al., 2015) and English Wikipedia (2,500M words)."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "BERT uses only left-to-right pre-training."
+    ],
+    "reference_answer": "BERT conditions on left and right context in every layer and supports downstream fine-tuning with a small output layer. Pre-training uses masked language modeling and next sentence prediction. Training corpora are BooksCorpus and English Wikipedia.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-summary-gpt2",
+    "question": "Summarize the GPT-2 report, including zero-shot transfer, a reading result and the limitations of summarization and data overlap.",
+    "pdf_files": [
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "summary"
+    ],
+    "tags": [
+      "summary",
+      "cross_page",
+      "limitation"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Tasks are performed zero-shot without changing model parameters or architecture.",
+        "citations": [
+          "language-models.pdf, page 2"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "GPT-2 reaches 55 F1 on CoQA development data without the 127,000+ supervised question-answer pairs used by baselines.",
+        "citations": [
+          "language-models.pdf, page 6"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "Generated summaries can confuse details such as counts of cars or placement of a logo.",
+        "citations": [
+          "language-models.pdf, page 6"
+        ]
+      },
+      {
+        "id": "F4",
+        "statement": "Overlap with evaluation data gives a small but consistent benefit to reported results.",
+        "citations": [
+          "language-models.pdf, page 8"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "language-models.pdf",
+        "page": 2,
+        "evidence": [
+          "We demonstrate language models can perform down-stream tasks in a zero-shot setting – without any parameter or architecture modification."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 6,
+        "evidence": [
+          "Greedy decoding from GPT-2 when conditioned on a document, the history of the associated conversation, and a final token A: achieves 55 F1 on the development set. This matches or exceeds the performance of 3 out of 4 baseline systems without using the 127,000+ manually collected question answer pairs those baselines were trained on.",
+          "While qualitatively the generations resemble summaries, as shown in Table 14, they often focus on recent content from the article or confuse specific details such as how many cars were involved in a crash or whether a logo was on a hat or shirt."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 8,
+        "evidence": [
+          "Overall, our analysis suggests that data overlap between WebText training data and specific evaluation datasets provides a small but consistent benefit to reported results."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "GPT-2 summaries are always factually correct.",
+      "The report proves zero evaluation contamination."
+    ],
+    "reference_answer": "Tasks are performed zero-shot without changing model parameters or architecture. GPT-2 reaches 55 F1 on CoQA development data without the 127,000+ supervised question-answer pairs used by baselines. Generated summaries can confuse details such as counts of cars or placement of a logo. Overlap with evaluation data gives a small but consistent benefit to reported results.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-compare-objectives",
+    "question": "Compare BERT and GPT-2: their attention direction, pre-training objectives and how they transfer to downstream tasks.",
+    "pdf_files": [
+      "N19-1423.pdf",
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "compare"
+    ],
+    "tags": [
+      "compare",
+      "cross_document",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "BERT uses bidirectional self-attention, masked LM and NSP; GPT-style attention is left-context-only.",
+        "citations": [
+          "N19-1423.pdf, page 3",
+          "N19-1423.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "GPT-2 uses an autoregressive language-modeling objective and a Transformer architecture largely following OpenAI GPT.",
+        "citations": [
+          "language-models.pdf, page 2",
+          "language-models.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "BERT fine-tunes for tasks, while this GPT-2 report demonstrates zero-shot tasks without parameter or architecture changes.",
+        "citations": [
+          "N19-1423.pdf, page 1",
+          "language-models.pdf, page 2"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 3,
+        "evidence": [
+          "Critically, however, the BERT Transformer uses bidirectional self-attention, while the GPT Transformer uses constrained self-attention where every token can only attend to context to its left.4"
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "The training data generator chooses 15% of the token positions at random for prediction. If the i-th token is chosen, we replace thei-th token with (1) the [MASK] token 80% of the time (2) a random token 10% of the time (3) the unchanged i-th token 10% of the time.",
+          "Specifically, when choosing the sentences A and B for each pretraining example, 50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus (labeled as NotNext)."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 2,
+        "evidence": [
+          "At the core of our approach is language modeling. Language modeling is usually framed as unsupervised distribution estimation from a set of examples (x1, x2, ..., xn) each composed of variable length sequences of symbols (s1, s2, ..., sn). Since language has a natural sequential ordering, it is common to factorize the joint probabilities over symbols as the product of conditional probabilities (Jelinek & Mercer, 1980) (Bengio et al., 2003): p(x) = n∏ i=1 p(sn|s1, ..., sn−1) (1)",
+          "We demonstrate language models can perform down-stream tasks in a zero-shot setting – without any parameter or architecture modification."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 4,
+        "evidence": [
+          "We use a Transformer (Vaswani et al., 2017) based architecture for our LMs. The model largely follows the details of the OpenAI GPT model (Radford et al., 2018) with a Parameters Layers dmodel 117M 12 768 345M 24 1024 762M 36 1280 1542M 48 1600 Table 2. Architecture hyperparameters for the 4 model sizes. few modifications."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 1,
+        "evidence": [
+          "As a result, the pre-trained BERT model can be finetuned with just one additional output layer to create state-of-the-art models for a wide range of tasks, such as question answering and language inference, without substantial taskspecific architecture modifications."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "GPT-2 is trained using BERT NSP.",
+      "BERT is reported solely as a zero-shot task system."
+    ],
+    "reference_answer": "BERT uses bidirectional self-attention, masked LM and NSP; GPT-style attention is left-context-only. GPT-2 uses an autoregressive language-modeling objective and a Transformer architecture largely following OpenAI GPT. BERT fine-tunes for tasks, while this GPT-2 report demonstrates zero-shot tasks without parameter or architecture changes.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-compare-corpora",
+    "question": "请对比 BERT 和 GPT-2 的预训练语料、各自报告的规模单位，以及对 Wikipedia 的处理。",
+    "pdf_files": [
+      "N19-1423.pdf",
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "compare"
+    ],
+    "tags": [
+      "compare",
+      "cross_document",
+      "insufficient_units"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "BERT uses 800M-word BooksCorpus and 2,500M-word English Wikipedia.",
+        "citations": [
+          "N19-1423.pdf, page 5"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "GPT-2 uses cleaned WebText with slightly over 8 million documents and 40 GB of text and removes Wikipedia.",
+        "citations": [
+          "language-models.pdf, page 3",
+          "language-models.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "Word counts and GB/document counts are different units; these excerpts do not establish an exact token-size ratio.",
+        "citations": [
+          "N19-1423.pdf, page 5",
+          "language-models.pdf, page 3"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 5,
+        "evidence": [
+          "For the pre-training corpus we use the BooksCorpus (800M words) (Zhu et al., 2015) and English Wikipedia (2,500M words)."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 3,
+        "evidence": [
+          "All results presented in this paper use a preliminary version of WebText which does not include links created after Dec 2017 and which after de-duplication and some heuristic based cleaning contains slightly over 8 million documents for a total of 40 GB of text.",
+          "We removed all Wikipedia documents from WebText since it is a common data source for other datasets and could complicate analysis"
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 4,
+        "evidence": [
+          "lapping training data with test evaluation tasks."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "BERT excludes Wikipedia and GPT-2 includes it.",
+      "40 GB equals exactly 40 billion tokens."
+    ],
+    "reference_answer": "BERT uses 800M-word BooksCorpus and 2,500M-word English Wikipedia. GPT-2 uses cleaned WebText with slightly over 8 million documents and 40 GB of text and removes Wikipedia. Word counts and GB/document counts are different units; these excerpts do not establish an exact token-size ratio.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-compare-architectures",
+    "question": "Compare BERT with the original Transformer: encoder/decoder architecture and reported layer counts.",
+    "pdf_files": [
+      "N19-1423.pdf",
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "compare"
+    ],
+    "tags": [
+      "compare",
+      "cross_document",
+      "cross_page"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "BERT is a bidirectional Transformer encoder with BASE 12 layers and LARGE 24 layers.",
+        "citations": [
+          "N19-1423.pdf, page 3"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "The original Transformer has separate six-layer encoder and six-layer decoder stacks.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 2",
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 3"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 3,
+        "evidence": [
+          "BERT’s model architecture is a multi-layer bidirectional Transformer encoder",
+          "We primarily report results on two model sizes: BERTBASE (L=12, H=768, A=12, Total Parameters=110M) and BERTLARGE (L=24, H=1024, A=16, Total Parameters=340M)."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 2,
+        "evidence": [
+          "Encoder: The encoder is composed of a stack of N = 6 identical layers. Each layer has two sub-layers. The first is a multi-head self-attention mechanism"
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 3,
+        "evidence": [
+          "Decoder: The decoder is also composed of a stack ofN = 6 identical layers. In addition to the two sub-layers in each encoder layer, the decoder inserts a third sub-layer, which performs multi-head attention over the output of the encoder stack."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "BERT LARGE has a six-layer encoder and six-layer decoder."
+    ],
+    "reference_answer": "BERT is a bidirectional Transformer encoder with BASE 12 layers and LARGE 24 layers. The original Transformer has separate six-layer encoder and six-layer decoder stacks.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-compare-translation",
+    "question": "Compare the reported French-to-English GPT-2 translation result with the English-to-French Transformer big result, preserving directions and avoiding a universal ranking.",
+    "pdf_files": [
+      "language-models.pdf",
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "compare"
+    ],
+    "tags": [
+      "compare",
+      "cross_document",
+      "evidence_limits"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "GPT-2 reports 11.5 BLEU for WMT-14 French-to-English.",
+        "citations": [
+          "language-models.pdf, page 7"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Transformer big reports 41.0 BLEU for WMT 2014 English-to-French.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 8"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "Opposite translation directions and different training setups do not justify a universal model ranking.",
+        "citations": [
+          "language-models.pdf, page 7",
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 8"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "language-models.pdf",
+        "page": 7,
+        "evidence": [
+          "On the WMT-14 French-English test set, GPT-2 is able to leverage its very strong English language model to perform significantly better, achieving 11.5 BLEU."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 8,
+        "evidence": [
+          "On the WMT 2014 English-to-French translation task, our big model achieves a BLEU score of 41.0, outperforming all of the previously published single models, at less than 1/4 the training cost of the previous state-of-the-art model. The Transformer (big) model trained for English-to-French used dropout ratePdrop = 0.1, instead of 0.3."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "Both results are English-to-French.",
+      "These results prove Transformer is always superior on all tasks."
+    ],
+    "reference_answer": "GPT-2 reports 11.5 BLEU for WMT-14 French-to-English. Transformer big reports 41.0 BLEU for WMT 2014 English-to-French. Opposite translation directions and different training setups do not justify a universal model ranking.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-source-attention",
+    "question": "List source citations for the Transformer scaled dot-product attention softmax scaling explanation.",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "source"
+    ],
+    "tags": [
+      "source",
+      "page_attribution"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Return the Transformer filename and physical PDF page 4 with a relevant attention-scaling excerpt.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 4,
+        "evidence": [
+          "query with all keys, divide each by√dk, and apply a softmax function to obtain the weights on the values.",
+          "We suspect that for large values of dk, the dot products grow large in magnitude, pushing the softmax function into regions where it has extremely small gradients 4."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "Attribute the scaling explanation to the BERT paper."
+    ],
+    "reference_answer": "Return the Transformer filename and physical PDF page 4 with a relevant attention-scaling excerpt.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-source-nsp",
+    "question": "列出 BERT 下一句预测中 IsNext/NotNext 各占 50% 的来源页码及原文片段。",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "source"
+    ],
+    "tags": [
+      "source",
+      "page_attribution"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Return N19-1423.pdf, physical PDF page 4, with the IsNext/NotNext sampling passage.",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "Specifically, when choosing the sentences A and B for each pretraining example, 50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus (labeled as NotNext)."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "Use printed proceedings page 4174 as the physical PDF page."
+    ],
+    "reference_answer": "Return N19-1423.pdf, physical PDF page 4, with the IsNext/NotNext sampling passage.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-source-webtext",
+    "question": "List source citations for the GPT-2 WebText Reddit link selection rule.",
+    "pdf_files": [
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "source"
+    ],
+    "tags": [
+      "source",
+      "page_attribution"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Return language-models.pdf, physical PDF page 3, and the Reddit outbound-link/three-karma passage.",
+        "citations": [
+          "language-models.pdf, page 3"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "language-models.pdf",
+        "page": 3,
+        "evidence": [
+          "we scraped all outbound links from Reddit, a social media platform, which received at least 3 karma."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The source passage says links needed thirty karma."
+    ],
+    "reference_answer": "Return language-models.pdf, physical PDF page 3, and the Reddit outbound-link/three-karma passage.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-keywords-transformer",
+    "question": "Extract the key concepts and terminology from the Transformer paper with concise explanations.",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "keyword"
+    ],
+    "tags": [
+      "keyword",
+      "cross_page"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Explain self-attention or multi-head attention as central concepts.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 1",
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 5"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Include scaled dot-product attention and positional encoding with sine/cosine functions.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 4",
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 6"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 1,
+        "evidence": [
+          "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 5,
+        "evidence": [
+          "In this work we employ h = 8 parallel attention layers, or heads. For each of these we use dk =dv =dmodel/h = 64. Due to the reduced dimension of each head, the total computational cost is similar to that of single-head attention with full dimensionality."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 4,
+        "evidence": [
+          "query with all keys, divide each by√dk, and apply a softmax function to obtain the weights on the values."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 6,
+        "evidence": [
+          "In this work, we use sine and cosine functions of different frequencies:"
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "Convolution and recurrence are mandatory Transformer components."
+    ],
+    "reference_answer": "Explain self-attention or multi-head attention as central concepts. Include scaled dot-product attention and positional encoding with sine/cosine functions.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-keywords-bert",
+    "question": "Extract the key concepts and terminology from the BERT paper with concise explanations.",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "keyword"
+    ],
+    "tags": [
+      "keyword",
+      "cross_page"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Include bidirectional Transformer representations, masked language modeling and next sentence prediction.",
+        "citations": [
+          "N19-1423.pdf, page 1",
+          "N19-1423.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Include WordPiece or the token/segment/position representation.",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 1,
+        "evidence": [
+          "BERT is designed to pretrain deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "The training data generator chooses 15% of the token positions at random for prediction. If the i-th token is chosen, we replace thei-th token with (1) the [MASK] token 80% of the time (2) a random token 10% of the time (3) the unchanged i-th token 10% of the time.",
+          "Specifically, when choosing the sentences A and B for each pretraining example, 50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus (labeled as NotNext).",
+          "We use WordPiece embeddings (Wu et al., 2016) with a 30,000 token vocabulary.",
+          "For a given token, its input representation is constructed by summing the corresponding token, segment, and position embeddings."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "NSP is a translation BLEU metric."
+    ],
+    "reference_answer": "Include bidirectional Transformer representations, masked language modeling and next sentence prediction. Include WordPiece or the token/segment/position representation.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-keywords-gpt2",
+    "question": "提取 GPT-2 报告中的关键词与术语，并简要说明。",
+    "pdf_files": [
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "keyword"
+    ],
+    "tags": [
+      "keyword",
+      "cross_page"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Include WebText, Transformer language modeling and zero-shot task transfer.",
+        "citations": [
+          "language-models.pdf, page 3",
+          "language-models.pdf, page 2"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Include context length or vocabulary as model configuration concepts.",
+        "citations": [
+          "language-models.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "language-models.pdf",
+        "page": 3,
+        "evidence": [
+          "All results presented in this paper use a preliminary version of WebText which does not include links created after Dec 2017 and which after de-duplication and some heuristic based cleaning contains slightly over 8 million documents for a total of 40 GB of text."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 2,
+        "evidence": [
+          "We demonstrate language models can perform down-stream tasks in a zero-shot setting – without any parameter or architecture modification."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 4,
+        "evidence": [
+          "The vocabulary is expanded to 50,257. We also increase the context size from 512 to 1024 tokens and a larger batchsize of 512 is used."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "WebText is a labeled QA dataset only."
+    ],
+    "reference_answer": "Include WebText, Transformer language modeling and zero-shot task transfer. Include context length or vocabulary as model configuration concepts.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-summary-keyword-bert",
+    "question": "请总结 BERT 论文，提取关键词并给出引用。",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "summary",
+      "keyword",
+      "source"
+    ],
+    "tags": [
+      "multi_agent",
+      "summary",
+      "keyword",
+      "source",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Explain bidirectional representations, masked LM and NSP.",
+        "citations": [
+          "N19-1423.pdf, page 1",
+          "N19-1423.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "Cover BooksCorpus/Wikipedia pre-training and task fine-tuning.",
+        "citations": [
+          "N19-1423.pdf, page 5",
+          "N19-1423.pdf, page 1"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "Provide relevant terms and supporting PDF citations.",
+        "citations": [
+          "N19-1423.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 1,
+        "evidence": [
+          "BERT is designed to pretrain deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers.",
+          "As a result, the pre-trained BERT model can be finetuned with just one additional output layer to create state-of-the-art models for a wide range of tasks, such as question answering and language inference, without substantial taskspecific architecture modifications."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "The training data generator chooses 15% of the token positions at random for prediction. If the i-th token is chosen, we replace thei-th token with (1) the [MASK] token 80% of the time (2) a random token 10% of the time (3) the unchanged i-th token 10% of the time.",
+          "Specifically, when choosing the sentences A and B for each pretraining example, 50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus (labeled as NotNext).",
+          "We use WordPiece embeddings (Wu et al., 2016) with a 30,000 token vocabulary."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 5,
+        "evidence": [
+          "For the pre-training corpus we use the BooksCorpus (800M words) (Zhu et al., 2015) and English Wikipedia (2,500M words)."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "BERT uses only a causal language modeling objective."
+    ],
+    "reference_answer": "Explain bidirectional representations, masked LM and NSP. Cover BooksCorpus/Wikipedia pre-training and task fine-tuning. Provide relevant terms and supporting PDF citations.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-compare-source-corpora",
+    "question": "Compare the BERT and GPT-2 training datasets and cite the sources.",
+    "pdf_files": [
+      "N19-1423.pdf",
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "compare",
+      "source"
+    ],
+    "tags": [
+      "multi_agent",
+      "compare",
+      "source",
+      "cross_document"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "BERT uses BooksCorpus and English Wikipedia; GPT-2 uses WebText with Wikipedia excluded.",
+        "citations": [
+          "N19-1423.pdf, page 5",
+          "language-models.pdf, page 3",
+          "language-models.pdf, page 4"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 5,
+        "evidence": [
+          "For the pre-training corpus we use the BooksCorpus (800M words) (Zhu et al., 2015) and English Wikipedia (2,500M words)."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 3,
+        "evidence": [
+          "All results presented in this paper use a preliminary version of WebText which does not include links created after Dec 2017 and which after de-duplication and some heuristic based cleaning contains slightly over 8 million documents for a total of 40 GB of text.",
+          "We removed all Wikipedia documents from WebText since it is a common data source for other datasets and could complicate analysis"
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 4,
+        "evidence": [
+          "lapping training data with test evaluation tasks."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "Both models use the same training corpus."
+    ],
+    "reference_answer": "BERT uses BooksCorpus and English Wikipedia; GPT-2 uses WebText with Wikipedia excluded.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-summary-keyword-all",
+    "question": "Summarize all three papers and extract keywords with citations.",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "N19-1423.pdf",
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "summary",
+      "keyword",
+      "source"
+    ],
+    "tags": [
+      "multi_agent",
+      "summary",
+      "keyword",
+      "source",
+      "cross_document",
+      "omission"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Transformer introduces an attention-only encoder-decoder model.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 1",
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 2",
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 3"
+        ]
+      },
+      {
+        "id": "F2",
+        "statement": "BERT introduces bidirectional representations with masked LM and NSP.",
+        "citations": [
+          "N19-1423.pdf, page 1",
+          "N19-1423.pdf, page 4"
+        ]
+      },
+      {
+        "id": "F3",
+        "statement": "GPT-2 demonstrates zero-shot task transfer using language models trained on WebText.",
+        "citations": [
+          "language-models.pdf, page 2",
+          "language-models.pdf, page 3"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 1,
+        "evidence": [
+          "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely."
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 2,
+        "evidence": [
+          "Encoder: The encoder is composed of a stack of N = 6 identical layers. Each layer has two sub-layers. The first is a multi-head self-attention mechanism"
+        ]
+      },
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 3,
+        "evidence": [
+          "Decoder: The decoder is also composed of a stack ofN = 6 identical layers. In addition to the two sub-layers in each encoder layer, the decoder inserts a third sub-layer, which performs multi-head attention over the output of the encoder stack."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 1,
+        "evidence": [
+          "BERT is designed to pretrain deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 4,
+        "evidence": [
+          "The training data generator chooses 15% of the token positions at random for prediction. If the i-th token is chosen, we replace thei-th token with (1) the [MASK] token 80% of the time (2) a random token 10% of the time (3) the unchanged i-th token 10% of the time.",
+          "Specifically, when choosing the sentences A and B for each pretraining example, 50% of the time B is the actual next sentence that follows A (labeled as IsNext), and 50% of the time it is a random sentence from the corpus (labeled as NotNext)."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 2,
+        "evidence": [
+          "We demonstrate language models can perform down-stream tasks in a zero-shot setting – without any parameter or architecture modification."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 3,
+        "evidence": [
+          "All results presented in this paper use a preliminary version of WebText which does not include links created after Dec 2017 and which after de-duplication and some heuristic based cleaning contains slightly over 8 million documents for a total of 40 GB of text."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "All three papers have identical objectives and architectures."
+    ],
+    "reference_answer": "Transformer introduces an attention-only encoder-decoder model. BERT introduces bidirectional representations with masked LM and NSP. GPT-2 demonstrates zero-shot task transfer using language models trained on WebText.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-qa-bert-ablation-source",
+    "question": "What happens when NSP is removed in the BERT ablation, and which tasks are specifically named? Give citations.",
+    "pdf_files": [
+      "N19-1423.pdf"
+    ],
+    "expected_steps": [
+      "qa",
+      "source"
+    ],
+    "tags": [
+      "multi_agent",
+      "qa",
+      "source",
+      "limitation"
+    ],
+    "answerability": "answerable",
+    "expected_behavior": "Answer every requested part using only the PDFs; cite supporting physical PDF pages and preserve qualifications.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "Removing NSP significantly hurts QNLI, MNLI and SQuAD 1.1 in the reported ablation.",
+        "citations": [
+          "N19-1423.pdf, page 8"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "N19-1423.pdf",
+        "page": 8,
+        "evidence": [
+          "In Table 5, we show that removing NSP hurts performance significantly on QNLI, MNLI, and SQuAD 1.1."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The paper reports NSP removal improves every task.",
+      "The ablation proves NSP is necessary for all future language models."
+    ],
+    "reference_answer": "Removing NSP significantly hurts QNLI, MNLI and SQuAD 1.1 in the reported ablation.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-unanswerable-gpt4",
+    "question": "What exact GPT-4 MMLU score do these three PDFs report?",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "N19-1423.pdf",
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "unanswerable",
+      "cross_document"
+    ],
+    "answerability": "unanswerable",
+    "expected_behavior": "Explicitly say the answer is unavailable in these PDFs. Do not use outside knowledge or substitute a different model/benchmark.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "State that the supplied PDFs do not report a GPT-4 MMLU score; do not invent a number.",
+        "citations": []
+      }
+    ],
+    "expected_citations": [],
+    "forbidden_claims": [
+      "GPT-4 scored 86.4% MMLU according to these PDFs.",
+      "A BERT GLUE score is the requested GPT-4 MMLU score."
+    ],
+    "reference_answer": "State that the supplied PDFs do not report a GPT-4 MMLU score; do not invent a number.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-insufficient-cost",
+    "question": "Can you determine the exact USD electricity bill of Transformer training from its P100 GPU count and training duration?",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf"
+    ],
+    "expected_steps": [
+      "qa"
+    ],
+    "tags": [
+      "qa",
+      "insufficient_evidence",
+      "numeric"
+    ],
+    "answerability": "insufficient_evidence",
+    "expected_behavior": "State that the exact bill cannot be determined from the supplied evidence; distinguish GPU time from measured electrical energy and USD prices.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "The paper reports eight P100 GPUs and training durations, but these do not determine an exact USD electricity bill without power consumption and electricity prices.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 7"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 7,
+        "evidence": [
+          "We trained our models on one machine with 8 NVIDIA P100 GPUs. For our base models using the hyperparameters described throughout the paper, each training step took about 0.4 seconds. We trained the base models for a total of 100,000 steps or 12 hours. For our big models,(described on the bottom line of table 3), step time was 1.0 seconds. The big models were trained for 300,000 steps (3.5 days)."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "The paper reports an exact electricity bill of USD 1000.",
+      "GPU count and duration alone determine a unique dollar cost."
+    ],
+    "reference_answer": "The paper reports eight P100 GPUs and training durations, but these do not determine an exact USD electricity bill without power consumption and electricity prices.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  },
+  {
+    "id": "real-insufficient-universal-ranking",
+    "question": "Compare all three papers and determine which model is guaranteed to win on every possible NLP task.",
+    "pdf_files": [
+      "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "N19-1423.pdf",
+      "language-models.pdf"
+    ],
+    "expected_steps": [
+      "compare"
+    ],
+    "tags": [
+      "compare",
+      "cross_document",
+      "insufficient_evidence"
+    ],
+    "answerability": "insufficient_evidence",
+    "expected_behavior": "Compare the scoped contributions and explicitly decline to infer a universal guarantee from heterogeneous evidence.",
+    "required_facts": [
+      {
+        "id": "F1",
+        "statement": "These papers address different training setups and benchmarks and do not establish a universal winner on all possible NLP tasks.",
+        "citations": [
+          "NIPS-2017-attention-is-all-you-need-Paper.pdf, page 8",
+          "N19-1423.pdf, page 1",
+          "language-models.pdf, page 2"
+        ]
+      }
+    ],
+    "expected_citations": [
+      {
+        "source": "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+        "page": 8,
+        "evidence": [
+          "On the WMT 2014 English-to-German translation task, the big transformer model (Transformer (big) in Table 2) outperforms the best previously reported models (including ensembles) by more than 2.0 BLEU, establishing a new state-of-the-art BLEU score of 28.4. The configuration of this model is listed in the bottom line of Table 3. Training took 3.5 days on 8 P100 GPUs."
+        ]
+      },
+      {
+        "source": "N19-1423.pdf",
+        "page": 1,
+        "evidence": [
+          "BERT is designed to pretrain deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers."
+        ]
+      },
+      {
+        "source": "language-models.pdf",
+        "page": 2,
+        "evidence": [
+          "We demonstrate language models can perform down-stream tasks in a zero-shot setting – without any parameter or architecture modification."
+        ]
+      }
+    ],
+    "forbidden_claims": [
+      "GPT-2 is guaranteed to beat BERT on every NLP task.",
+      "Transformer wins every possible task."
+    ],
+    "reference_answer": "These papers address different training setups and benchmarks and do not establish a universal winner on all possible NLP tasks.",
+    "annotation": {
+      "status": "pending_human_review",
+      "origin": "Assistant-authored after local PDF text inspection; exact excerpts matched to supplied PDF pages.",
+      "evidence_check": "exact_source_text_match",
+      "human_verified": false
+    }
+  }
+]

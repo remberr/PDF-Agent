@@ -1,4 +1,5 @@
 import sqlite3
+import gc
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,9 +24,13 @@ class SessionLifecycleTests(unittest.TestCase):
         )
         self.settings.start()
         session_store.init_session_store()
+        gc.collect()
 
     def tearDown(self):
         self.settings.stop()
+        # Legacy sqlite connection cycles are collected before Windows removes
+        # the fixture directory; POSIX permits deleting open database files.
+        gc.collect()
         self.temp_dir.cleanup()
 
     def test_existing_database_is_migrated_with_lifecycle_columns(self):

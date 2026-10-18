@@ -12,7 +12,7 @@ services:
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPSEEK_MODEL
-        value: deepseek-v4-flash
+        value: deepseek-flash
       - key: LOG_LEVEL
         value: INFO
       - key: PDF_AGENT_DATA_DIR

@@ -9,6 +9,10 @@ __pycache__
 *.py[cod]
 *.log
 .env
+.evaluation-local
+evaluation/reports
+evaluation/pdfs
+**/*.pdf
 .streamlit
 .vscode
 .idea
@@ -23,3 +27,4 @@ frontend/dist
 frontend/*.tsbuildinfo
 tests
 README.md
+README.zh-CN.md

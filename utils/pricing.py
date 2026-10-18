@@ -58,6 +58,11 @@ def _unavailable(reason):
 
 
 def get_model_pricing(model, at=None):
+    """Apply peak-rate overrides before selecting the Beijing billing tier.
+
+    Environment variables always denote peak USD / 1M token prices. Neither
+    complete nor partial overrides bypass the calendar or price unknown models.
+    """
     configured = {}
     for key, env_name in PRICE_ENV_VARS.items():
         value = os.getenv(env_name)
@@ -70,8 +75,6 @@ def get_model_pricing(model, at=None):
         except ValueError:
             return _unavailable(f'Invalid non-negative finite price in {env_name}.')
         configured[key] = price
-    if len(configured) == len(PRICE_ENV_VARS):
-        return configured | dict(tier='configured', available=True)
     peak_prices = MODEL_PRICING.get(MODEL_ALIASES.get(model, model))
     if peak_prices is None:
         return _unavailable(f'No pricing configured for model {model}.')
@@ -79,6 +82,5 @@ def get_model_pricing(model, at=None):
         is_peak = _is_peak_time(at or datetime.now(timezone.utc))
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return _unavailable(str(exc))
-    prices = {key: price * (1 if is_peak else .5) for key, price in peak_prices.items()}
-    prices.update(configured)
+    prices = {key: price * (1 if is_peak else .5) for key, price in (peak_prices | configured).items()}
     return prices | dict(tier=('peak' if is_peak else 'off_peak') + ('_configured' if configured else ''), available=True)

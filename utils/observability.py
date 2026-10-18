@@ -247,35 +247,56 @@ def _usage_payload(usage):
 
 
 def _safe_int(value):
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
+    return value if type(value) is int and value >= 0 else 0
+
+
+def _usage_error(payload):
+    """Require actual counters and a determinate cache split before pricing."""
+    for key in ("prompt_tokens", "completion_tokens"):
+        if type(payload.get(key)) is not int or payload[key] < 0:
+            return f"Provider usage missing or invalid: {key}."
+    for key in ("total_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"):
+        if key in payload and (type(payload[key]) is not int or payload[key] < 0):
+            return f"Invalid provider token counter: {key}."
+    input_tokens = payload["prompt_tokens"]
+    hit = payload.get("prompt_cache_hit_tokens")
+    miss = payload.get("prompt_cache_miss_tokens")
+    if hit is None and miss is None and input_tokens:
+        return "Provider cache usage unavailable; input cache split is unknown."
+    if any(value is not None and value > input_tokens for value in (hit, miss)):
+        return "Provider cache tokens exceed input tokens."
+    if hit is not None and miss is not None and hit + miss != input_tokens:
+        return "Provider cache hit/miss tokens do not sum to input tokens."
+    if "total_tokens" in payload and payload["total_tokens"] != input_tokens + payload["completion_tokens"]:
+        return "Provider total tokens do not sum to input/output tokens."
+    return None
 
 
 def record_llm_usage(model, operation, usage, duration_ms, at=None):
     """Normalize provider usage, estimate cost, and update the active tracker."""
 
     payload = _usage_payload(usage)
+    if not isinstance(payload, dict):
+        payload = {}
+    usage_error = _usage_error(payload)
     input_tokens = _safe_int(payload.get("prompt_tokens"))
     output_tokens = _safe_int(payload.get("completion_tokens"))
     total_tokens = _safe_int(
         payload.get("total_tokens") or input_tokens + output_tokens
     )
-    cache_hit_tokens = _safe_int(payload.get("prompt_cache_hit_tokens"))
+    cache_hit_value = payload.get("prompt_cache_hit_tokens")
     cache_miss_value = payload.get("prompt_cache_miss_tokens")
+    cache_hit_tokens = _safe_int(
+        cache_hit_value if cache_hit_value is not None
+        else max(input_tokens - _safe_int(cache_miss_value), 0) if cache_miss_value is not None else 0
+    )
     cache_miss_tokens = _safe_int(
         cache_miss_value
         if cache_miss_value is not None
         else max(input_tokens - cache_hit_tokens, 0)
     )
-    unclassified = max(
-        input_tokens - cache_hit_tokens - cache_miss_tokens,
-        0,
-    )
-    cache_miss_tokens += unclassified
-
     pricing = get_model_pricing(model, at=at)
+    cost_available = pricing["available"] and usage_error is None
     estimated_cost = (
         cache_hit_tokens * pricing["cache_hit"]
         + cache_miss_tokens * pricing["cache_miss"]
@@ -293,13 +314,15 @@ def record_llm_usage(model, operation, usage, duration_ms, at=None):
             cache_hit_tokens / input_tokens if input_tokens else 0.0,
             4,
         ),
-        "estimated_cost_usd": round(estimated_cost, 10) if payload else 0.0,
-        "pricing_reason": pricing.get("reason"),
+        "estimated_cost_usd": round(estimated_cost, 10) if cost_available else 0.0,
+        "estimated_total_cost_usd": round(estimated_cost, 10) if cost_available else None,
+        "cost_status": "available" if cost_available else "unavailable",
+        "pricing_reason": pricing.get("reason") or usage_error,
         "call_started_at": at.isoformat() if at else None,
         "currency": "USD",
         "pricing_tier": pricing["tier"],
-        "cost_estimate_available": pricing["available"] and bool(payload),
-        "usage_available": bool(payload),
+        "cost_estimate_available": cost_available,
+        "usage_available": usage_error is None,
         "duration_ms": round(duration_ms, 2),
     }
 

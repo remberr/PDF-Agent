@@ -55,12 +55,74 @@ class FlashPricingTests(unittest.TestCase):
                   'LLM_CACHE_MISS_COST_PER_1M_TOKENS': '2',
                   'LLM_OUTPUT_COST_PER_1M_TOKENS': '3'}
         with patch.dict(os.environ, values):
-            prices = get_model_pricing('unknown-model')
-            self.assertEqual(prices['tier'], 'configured')
+            prices = get_model_pricing('deepseek-flash', datetime(2026, 9, 7, 10, tzinfo=BEIJING))
+            self.assertEqual(prices['tier'], 'peak_configured')
             self.assertEqual(prices['output'], 3)
+            prices = get_model_pricing('deepseek-flash', datetime(2026, 9, 7, 12, tzinfo=BEIJING))
+            self.assertEqual(prices['tier'], 'off_peak_configured')
+            self.assertEqual((prices['cache_hit'], prices['cache_miss'], prices['output']), (.5, 1, 1.5))
+            self.assertFalse(get_model_pricing('unknown-model')['available'])
+            self.assertFalse(get_model_pricing('deepseek-flash', datetime(2035, 1, 8, 10, tzinfo=BEIJING))['available'])
             for value in ['nan', '-1', 'bad', 'inf']:
                 os.environ['LLM_OUTPUT_COST_PER_1M_TOKENS'] = value
                 self.assertFalse(get_model_pricing('deepseek-flash')['available'])
+
+    def test_partial_overrides_and_holidays_still_use_off_peak_multiplier(self):
+        with patch.dict(os.environ, {'LLM_OUTPUT_COST_PER_1M_TOKENS': '2'}):
+            for at in [datetime(2026, 9, 7, 12, tzinfo=BEIJING),
+                       datetime(2026, 10, 1, 10, tzinfo=BEIJING),
+                       datetime(2026, 10, 10, 10, tzinfo=BEIJING)]:
+                with self.subTest(at=at):
+                    prices = get_model_pricing('deepseek-flash', at)
+                    self.assertEqual(prices['output'], 1)
+                    self.assertEqual(prices['cache_miss'], .15)
+
+    def test_pro_rates_are_preserved(self):
+        peak = get_model_pricing('deepseek-v4-pro', datetime(2026, 9, 7, 10, tzinfo=BEIJING))
+        off = get_model_pricing('deepseek-v4-pro', datetime(2026, 9, 7, 12, tzinfo=BEIJING))
+        self.assertEqual((peak['cache_hit'], peak['cache_miss'], peak['output']), (.044, 1.32, 3.96))
+        self.assertEqual((off['cache_hit'], off['cache_miss'], off['output']), (.022, .66, 1.98))
+
+    def test_incomplete_or_invalid_usage_is_not_a_zero_cost_estimate(self):
+        payloads = [None, {}, {'total_tokens': 10}, {'prompt_tokens': 10},
+                    {'prompt_tokens': 10, 'completion_tokens': None},
+                    {'prompt_tokens': 10, 'completion_tokens': 2},
+                    {'prompt_tokens': 10, 'completion_tokens': 2, 'prompt_cache_hit_tokens': -1},
+                    {'prompt_tokens': 10, 'completion_tokens': 2, 'prompt_cache_hit_tokens': 11},
+                    {'prompt_tokens': 10, 'completion_tokens': 2, 'prompt_cache_hit_tokens': 2, 'prompt_cache_miss_tokens': 9},
+                    {'prompt_tokens': 10, 'completion_tokens': 2.5, 'prompt_cache_hit_tokens': 2},
+                    {'prompt_tokens': True, 'completion_tokens': 2, 'prompt_cache_hit_tokens': 0},
+                    {'prompt_tokens': 10, 'completion_tokens': 2, 'prompt_cache_hit_tokens': 2, 'total_tokens': 99}]
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                tracker = new_usage_tracker()
+                with observability_context(usage_tracker=tracker):
+                    result = record_llm_usage('deepseek-flash', 'qa', payload, 1,
+                                              at=datetime(2026, 9, 7, 10, tzinfo=BEIJING))
+                self.assertFalse(result['cost_estimate_available'])
+                self.assertEqual(tracker.summary()['cost_status'], 'unavailable')
+                self.assertIsNone(tracker.summary()['estimated_total_cost_usd'])
+                self.assertTrue(tracker.summary()['pricing_warnings'])
+
+    def test_cache_miss_can_supply_hit_count_and_zero_usage_is_valid(self):
+        at = datetime(2026, 9, 7, 10, tzinfo=BEIJING)
+        result = record_llm_usage('deepseek-flash', 'qa',
+                                  {'prompt_tokens': 1000, 'completion_tokens': 100,
+                                   'prompt_cache_miss_tokens': 600}, 1, at=at)
+        self.assertTrue(result['cost_estimate_available'])
+        self.assertEqual(result['cache_hit_tokens'], 400)
+        self.assertAlmostEqual(result['estimated_cost_usd'], .0003024)
+        zero = record_llm_usage('deepseek-flash', 'qa', {'prompt_tokens': 0, 'completion_tokens': 0}, 1, at=at)
+        self.assertTrue(zero['cost_estimate_available'])
+        unknown = record_llm_usage('unknown-model', 'qa', {'prompt_tokens': 0, 'completion_tokens': 0}, 1, at=at)
+        self.assertFalse(unknown['cost_estimate_available'])
+
+    def test_default_model_is_canonical_and_explicit_setting_is_respected(self):
+        from utils.llm_client import get_deepseek_model
+        os.environ.pop('DEEPSEEK_MODEL', None)
+        self.assertEqual(get_deepseek_model(), 'deepseek-flash')
+        with patch.dict(os.environ, {'DEEPSEEK_MODEL': 'deepseek-v4-pro'}):
+            self.assertEqual(get_deepseek_model(), 'deepseek-v4-pro')
 
     def test_cost_cache_fallback_duration_and_unavailable_bucket(self):
         at = datetime(2026, 9, 7, 10, tzinfo=BEIJING)

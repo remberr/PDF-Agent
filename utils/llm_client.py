@@ -12,7 +12,7 @@ from utils.observability import log_event, record_llm_usage
 load_dotenv()
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-flash"
 DEFAULT_TIMEOUT = 60
 
 _deepseek_client = None

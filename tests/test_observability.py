@@ -36,9 +36,9 @@ class PricingTests(unittest.TestCase):
             ):
                 os.environ.pop(env_name, None)
 
-            peak_prices = get_model_pricing("deepseek-v4-flash", peak)
+            peak_prices = get_model_pricing("deepseek-flash", peak)
             off_peak_prices = get_model_pricing(
-                "deepseek-v4-flash",
+                "deepseek-flash",
                 off_peak,
             )
 
@@ -60,16 +60,16 @@ class PricingTests(unittest.TestCase):
         with patch(
             "utils.observability.get_model_pricing",
             return_value={
-                "cache_hit": 0.014,
-                "cache_miss": 0.44,
-                "output": 1.32,
+                "cache_hit": 0.006,
+                "cache_miss": 0.30,
+                "output": 1.20,
                 "tier": "peak",
                 "available": True,
             },
         ):
             with observability_context(usage_tracker=tracker):
                 record_llm_usage(
-                    "deepseek-v4-flash",
+                    "deepseek-flash",
                     "qa",
                     usage,
                     25.0,
@@ -80,7 +80,7 @@ class PricingTests(unittest.TestCase):
         self.assertEqual(summary["llm_calls"], 1)
         self.assertEqual(summary["total_tokens"], 1100)
         self.assertEqual(summary["cache_hit_rate"], 0.1)
-        self.assertAlmostEqual(summary["estimated_cost_usd"], 0.0005294)
+        self.assertAlmostEqual(summary["estimated_cost_usd"], 0.0003906)
         self.assertEqual(summary["by_operation"]["qa"]["llm_calls"], 1)
 
 
@@ -152,7 +152,7 @@ class LLMClientUsageTests(unittest.TestCase):
     @patch("utils.llm_client.get_deepseek_client")
     def test_llm_client_records_provider_usage(self, mock_get_client):
         response = SimpleNamespace(
-            model="deepseek-v4-flash",
+            model="deepseek-flash",
             choices=[SimpleNamespace(message=SimpleNamespace(content="Answer"))],
             usage=SimpleNamespace(
                 prompt_tokens=20,
@@ -182,7 +182,7 @@ class LLMClientUsageTests(unittest.TestCase):
         _mock_save_session,
     ):
         response = SimpleNamespace(
-            model="deepseek-v4-flash",
+            model="deepseek-flash",
             choices=[
                 SimpleNamespace(
                     message=SimpleNamespace(

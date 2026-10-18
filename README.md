@@ -211,7 +211,7 @@ data: {"answer":"...","sources":[...],"timings":{...},"usage":{...}}
 - Every HTTP response includes `X-Request-ID`; the same ID and Session ID correlate request, node, and model-call logs, including the full SSE lifetime.
 - LLM logs contain the operation, model, latency, input/output tokens, cache hit/miss tokens, cache hit rate, pricing tier, and estimated USD cost. Prompts, PDF text, API keys, and answers are not logged.
 - API and SSE results expose request-level `usage` totals with `by_model` and `by_operation` breakdowns. The Workflow panel displays calls, total tokens, cache hit rate, estimated cost, and per-operation usage.
-- Token counts come from the provider response. Cost is an estimate based on [DeepSeek's current peak/off-peak and cache-aware pricing](https://api-docs.deepseek.com/quick_start/pricing/); set all three `LLM_*_COST_PER_1M_TOKENS` variables to override built-in rates after a pricing change.
+- Token counts come from the provider response. Cost is an estimate based on [DeepSeek's current peak/off-peak and cache-aware pricing](https://api-docs.deepseek.com/quick_start/pricing/); optional `LLM_*_COST_PER_1M_TOKENS` overrides are peak prices and still receive the off-peak multiplier. Unknown models or incomplete/inconsistent usage are displayed as unavailable, not free.
 
 Representative events include `http_request_completed`, `agent_node_completed`, `llm_call_completed`, `agent_workflow_completed`, `pdf_indexed`, and `session_cleanup_completed`.
 
@@ -279,7 +279,7 @@ Create `.env` from `.env.example` and add your DeepSeek API key:
 
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL=deepseek-flash
 LOG_LEVEL=INFO
 SESSION_TTL_SECONDS=86400
 SESSION_CLEANUP_INTERVAL_SECONDS=3600
@@ -381,22 +381,22 @@ python -m evaluation.runner --mode live --case source-citations --output evaluat
 python -m evaluation.runner --mode live --llm-judge --output evaluation/reports/live.json
 ```
 
-`evaluation/real_pdf_cases.json` contains 30 cases covering QA, Summary, Compare, Source, Keyword, combinations, cross-page retrieval, cross-document comparisons, missing details, unanswerable questions and insufficient evidence. `pdf_manifest.json` pins the supplied GPT-2, BERT and Transformer PDFs by filename, physical page count and SHA-256. Keep the files locally; PDFs, extracted text, indexes and reports must not be committed. Default real-PDF reports go to ignored `evaluation/reports/`, separately from controlled reports. `--dataset`, `--manifest`, `--case` (repeatable), `--limit` and `--output` customize a run.
+`evaluation/real_pdf_cases.json` contains 30 cases (including six Chinese questions), 60 required facts and 90 page-evidence excerpts covering QA, Summary, Compare, Source, Keyword, combinations, cross-page retrieval, cross-document comparisons, missing details, unanswerable questions and insufficient evidence. `pdf_manifest.json` pins the supplied GPT-2, BERT and Transformer PDFs by filename, physical page count and SHA-256. Keep the files locally; PDFs, extracted text, indexes and reports must not be committed. Default real-PDF reports go to ignored `evaluation/reports/`, separately from controlled reports. `--dataset`, `--manifest`, `--case` (repeatable), `--limit` and `--output` customize a run.
 
 Replace the directory below with the location of the three supplied PDFs:
 
 ```bash
 # No embeddings or LLM: check hashes, page ranges and exact evidence excerpts.
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --validate-only
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --validate-only
 
 # Production embeddings + real FAISS retrieval; no generation or Judge.
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --retrieval-only
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --retrieval-only
 
 # LangGraph Source specialist over real FAISS, without provider calls.
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --case real-source-attention --output evaluation/reports/real-source.json
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --case real-source-attention --output evaluation/reports/real-source.json
 
 # PAID: set DEEPSEEK_API_KEY, then explicitly enable generation and judging.
-python -m evaluation.runner --mode real-pdf --pdf-dir "C:/Users/31701/Downloads/pdf" --allow-paid-api --llm-judge --output evaluation/reports/real-pdf.json
+python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --allow-paid-api --llm-judge --output evaluation/reports/real-pdf.json
 ```
 
 The first embedding run may download the production Hugging Face model; subsequent runs reuse the model cache. Set `HF_HUB_OFFLINE=1` to require cached weights. FAISS indexes are built in memory per `pdf_files` scope and reused during the run. A scope is equivalent to the PDFs uploaded into a session; it does not select pages or supply reference facts to the Agent. All scoped pages enter the index, including distractors. Only the question, filenames and retriever enter workflow state. Production specialist retrieval limits and query strategies are unchanged, so a broad summary or comparison may miss required facts; the evaluation should expose those failures.
@@ -413,19 +413,22 @@ Validation/retrieval reports use separate mode names, `passed: null`, `generatio
 
 ### Cost estimation
 
-Prices are centralized in `utils/pricing.py`, verified against [DeepSeek's official USD pricing](https://api-docs.deepseek.com/quick_start/pricing/) on 2026-10-18. `deepseek-flash` and legacy `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` share Flash rates; existing chat/reasoner aliases remain supported. The configured model target is unchanged.
+Prices are centralized in `utils/pricing.py`, verified against [DeepSeek's official USD pricing](https://api-docs.deepseek.com/quick_start/pricing/) on 2026-10-18. `deepseek-flash` and legacy `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` share Flash rates; existing chat/reasoner aliases remain supported. New configurations default to `deepseek-flash`; explicit existing model settings are respected.
 
-| USD per 1M tokens | Off-peak | Peak |
-| --- | ---: | ---: |
-| Cache hit | 0.003 | 0.006 |
-| Cache miss | 0.15 | 0.30 |
-| Output | 0.60 | 1.20 |
+| Model | USD per 1M tokens | Off-peak | Peak |
+| --- | --- | ---: | ---: |
+| `deepseek-flash` | Cache hit | 0.003 | 0.006 |
+| `deepseek-flash` | Cache miss | 0.15 | 0.30 |
+| `deepseek-flash` | Output | 0.60 | 1.20 |
+| `deepseek-v4-pro` | Cache hit | 0.022 | 0.044 |
+| `deepseek-v4-pro` | Cache miss | 0.66 | 1.32 |
+| `deepseek-v4-pro` | Output | 1.98 | 3.96 |
 
-Cost = `(hit_tokens × hit_rate + miss_tokens × miss_rate + output_tokens × output_rate) / 1,000,000`. Missing cache-miss counts default to the input tokens not classified as cache hits. Rates use the timezone-aware **request start timestamp**, converted to Beijing time. Peak windows are Monday–Friday `[09:00, 12:00)` and `[14:00, 18:00)`, excluding full Chinese public holiday breaks. Weekends, including makeup working weekends, are off-peak.
+Cost = `(hit_tokens × hit_price + miss_tokens × miss_price + output_tokens × output_price) / 1,000,000`. Input/output counters must be nonnegative integers. When exactly one cache counter is present, derive the other from total input. Missing both cache counters with nonzero input, invalid counters, or contradictory input/output/cache totals make the estimate unavailable. Explicit zero usage remains valid. Rates use the timezone-aware **request start timestamp**, converted to Beijing time. Peak windows are Monday–Friday `[09:00, 12:00)` and `[14:00, 18:00)`, excluding full Chinese public holiday breaks. Weekends, including makeup working weekends, are off-peak.
 
 `utils/china_holidays.json` currently covers **2026**, with the [State Council notice](https://www.gov.cn/zhengce/content/202511/content_7047090.htm) and a [government mirror](https://www.beijing.gov.cn/zhengce/zhengcefagui/202511/t20251104_4258873.html). Add each newly published year with its authoritative source and reviewed date. No runtime holiday network call is made. During a possible peak window, an unknown year, unreadable calendar, invalid price or unknown model yields `cost_status: unavailable`, `cost_estimate_available: false`, explanatory `pricing_warnings` and `estimated_total_cost_usd: null`. A known weekend or outside-window call is still unambiguously off-peak. For backward compatibility, numeric `estimated_cost_usd` / `known_cost_usd` retain only the priced subtotal; **zero with unavailable status does not mean free**.
 
-Set all three `LLM_CACHE_HIT_COST_PER_1M_TOKENS`, `LLM_CACHE_MISS_COST_PER_1M_TOKENS` and `LLM_OUTPUT_COST_PER_1M_TOKENS` variables to finite nonnegative prices to override rates at all times, including unknown models/calendar years. Partial overrides replace the specified rates only when a valid built-in tier can be determined. Invalid values are explicitly unavailable. Estimates exclude local embedding compute and cannot replace the provider invoice.
+The `LLM_CACHE_HIT_COST_PER_1M_TOKENS`, `LLM_CACHE_MISS_COST_PER_1M_TOKENS` and `LLM_OUTPUT_COST_PER_1M_TOKENS` variables override **peak** prices for the selected supported model. Set any or all to finite nonnegative values; overrides are merged before the peak/off-peak multiplier, so off-peak remains half price. Overrides never bypass unknown-model/calendar checks. Invalid values are explicitly unavailable. Leave the overrides unset to keep model-specific defaults; copying Flash prices while selecting Pro would override Pro rates too. Estimates exclude local embedding compute and cannot replace the provider invoice.
 
 ## Tests
 
@@ -435,14 +438,14 @@ Run the agent fast-path and streaming tests:
 python -m unittest discover -s tests -v
 ```
 
-The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, structured logs, token/cost accounting, evaluation metrics, database migration, session TTL, deletion, and orphan cleanup.
+The tests cover deterministic planning, Chinese intent routing, false-positive keyword prevention, concurrent specialist execution, reviewer fast paths, source formatting, SSE workflow events, structured logs, peak/off-peak boundaries and timezones, weekends and public holidays, aliases, complete/partial price overrides, cache-aware accounting, unavailable-cost handling, Agent/Judge usage isolation, evaluation metrics, database migration, session TTL, deletion, and orphan cleanup.
 
 The ordinary suite uses test embeddings and mocked provider responses for integration wiring; it never calls DeepSeek. Local production-PDF and paid integration tests are separately skipped unless explicitly enabled. On PowerShell:
 
 ```powershell
 # Local PDFs + cached production embeddings, no paid request.
 $env:HF_HUB_OFFLINE="1"
-$env:PDF_AGENT_EVAL_PDF_DIR="C:/Users/31701/Downloads/pdf"
+$env:PDF_AGENT_EVAL_PDF_DIR="C:/path/to/pdfs"
 $env:PDF_AGENT_RUN_LOCAL_PDF_TESTS="1"
 python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
 
@@ -451,6 +454,24 @@ $env:PDF_AGENT_RUN_PAID_TESTS="1"
 python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
 Remove-Item Env:PDF_AGENT_RUN_PAID_TESTS
 ```
+
+### Local verification snapshot — 2026-10-18
+
+These are local observations for this revision, not guarantees for a fresh environment or a hosted deployment. The latest pricing correction reused the unchanged PDF/retrieval checks below and reran the complete offline suite and routing benchmark.
+
+| Check | Observed result |
+| --- | --- |
+| Full offline suite | 50 tests: 48 passed; local-PDF and paid integration tests skipped |
+| Focused pricing tests | 13 passed, included in the full suite |
+| Routing benchmark | 9/9 passed, no model calls |
+| Controlled Source Live | Passed, no model calls |
+| Local production PDF/embedding/FAISS integration | Explicitly enabled and passed separately |
+| Reference provenance | Three PDFs / 51 pages; all 90 excerpts matched their annotated pages; semantic human review still pending |
+| Retrieval-only diagnostics | All 30 cases executed; no answer generation or Judge |
+| Three real Source workflow cases | Route accuracy 1.0, source recall 0.6667, citation precision 1.0; quality gate failed because `real-source-nsp` missed BERT physical PDF page 4 |
+| Paid DeepSeek generation and Judge | Not run; not reported as passed |
+
+The source-retrieval failure remains visible in the benchmark. Reference annotations are provisional, and the holiday calendar currently covers 2026. Refresh calendar/pricing sources and complete human reference review before interpreting later evaluations as verified Ground Truth.
 
 GitHub Actions runs the backend tests and frontend production build in parallel, then verifies the complete production Docker image. Dependency and BuildKit caches keep repeat runs fast.
 

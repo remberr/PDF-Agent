@@ -44,6 +44,13 @@ export interface UsageBreakdown {
   cache_hit_tokens: number;
   cache_miss_tokens: number;
   estimated_cost_usd: number;
+  cost_estimate_available?: boolean;
+  estimated_cost_cny?: number | null;
+  cost_estimate_cny_available?: boolean;
+  cache_hit_rate?: number;
+  cache_usage_available?: boolean;
+  cache_status?: "available" | "unavailable" | "no_calls";
+  cache_unavailable_calls?: number;
 }
 
 export interface LLMUsage extends UsageBreakdown {

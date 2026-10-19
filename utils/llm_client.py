@@ -62,6 +62,7 @@ def chat_with_deepseek(
     model=None,
     temperature=0,
     operation="unspecified",
+    system_prompt=None,
 ):
     """
     Send a single prompt to DeepSeek and return the response text.
@@ -71,16 +72,15 @@ def chat_with_deepseek(
     client = get_deepseek_client()
     call_started_at = datetime.now(timezone.utc)
     started_at = perf_counter()
+    messages = []
+    if system_prompt is not None:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
 
     try:
         response = client.chat.completions.create(
             model=requested_model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
+            messages=messages,
             temperature=temperature
         )
 

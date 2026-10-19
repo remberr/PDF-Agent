@@ -75,6 +75,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Test workflow cache display
+        run: npm test
+
   docker-build:
     name: Docker build
     runs-on: ubuntu-latest

@@ -11,12 +11,14 @@ import {
 import type { ReactNode } from "react";
 
 import type { Translation } from "../i18n";
-import type { AskResponse, WorkflowProgress } from "../types";
+import type { AskResponse, Language, WorkflowProgress } from "../types";
+import { formatCacheHit, formatEstimatedCost } from "../utils/usage";
 
 interface WorkflowPanelProps {
   result?: AskResponse;
   progress?: WorkflowProgress;
   t: Translation;
+  language: Language;
 }
 
 function NoteList({ title, items }: { title: string; items?: string[] }) {
@@ -46,19 +48,7 @@ function formatDuration(milliseconds?: number): string {
   return `${(milliseconds / 1000).toFixed(2)} s`;
 }
 
-function formatCost(cost: number, available: boolean): string {
-  if (!available) {
-    return "--";
-  }
-
-  if (cost === 0) {
-    return "$0.000000";
-  }
-
-  return cost < 0.01 ? `$${cost.toFixed(6)}` : `$${cost.toFixed(4)}`;
-}
-
-export function WorkflowPanel({ result, progress, t }: WorkflowPanelProps) {
+export function WorkflowPanel({ result, progress, t, language }: WorkflowPanelProps) {
   const notes = result?.collaboration_notes;
   const steps = result?.steps ?? progress?.steps ?? [];
   const timings = result?.timings ?? progress?.timings ?? {};
@@ -275,14 +265,12 @@ export function WorkflowPanel({ result, progress, t }: WorkflowPanelProps) {
                 </div>
                 <div>
                   <span>{t.workflow.cacheHit}</span>
-                  <strong>{Math.round(usage.cache_hit_rate * 100)}%</strong>
+                  <strong>{formatCacheHit(usage, t.workflow)}</strong>
                 </div>
                 <div>
                   <span>{t.workflow.estimatedCost}</span>
                   <strong>
-                    {usage.cost_estimate_available
-                      ? formatCost(usage.estimated_cost_usd, true)
-                      : t.workflow.unavailable}
+                    {formatEstimatedCost(usage, language, t.workflow.unavailable)}
                   </strong>
                 </div>
               </div>
@@ -298,10 +286,7 @@ export function WorkflowPanel({ result, progress, t }: WorkflowPanelProps) {
                         </span>
                         <span>{item.total_tokens.toLocaleString()} tok</span>
                         <strong>
-                          {formatCost(
-                            item.estimated_cost_usd,
-                            usage.cost_estimate_available,
-                          )}
+                          {formatEstimatedCost(item, language, t.workflow.unavailable)}
                         </strong>
                       </div>
                     ),

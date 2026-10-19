@@ -1,5 +1,5 @@
 """Merge UsageTracker summaries without losing model/operation or unknown costs."""
-from utils.observability import empty_usage_summary
+from utils.observability import cache_usage_summary, empty_usage_summary
 
 
 ADDITIVE_FIELDS = (
@@ -18,7 +18,8 @@ def merge_usage(summaries):
     result['cost_estimate_available'] = all(s.get('cost_estimate_available', True) for s in summaries)
     result['cost_status'] = 'available' if result['cost_estimate_available'] else 'unavailable'
     result['estimated_total_cost_usd'] = result['estimated_cost_usd'] if result['cost_estimate_available'] else None
-    result['cache_hit_rate'] = round(result['cache_hit_tokens'] / result['input_tokens'], 4) if result['input_tokens'] else 0.0
+    result.update(_merge_cache(summaries, result))
+    result.update(_merge_cny(summaries))
     for field in ['pricing_tiers', 'pricing_warnings']:
         result[field] = sorted({value for s in summaries for value in s.get(field, [])})
     for field in ['by_model', 'by_operation']:
@@ -36,4 +37,22 @@ def _merge_buckets(buckets):
     result['cost_estimate_available'] = all(b.get('cost_estimate_available', True) for b in buckets)
     result['cost_status'] = 'available' if result['cost_estimate_available'] else 'unavailable'
     result['estimated_total_cost_usd'] = result['estimated_cost_usd'] if result['cost_estimate_available'] else None
+    result.update(_merge_cache(buckets, result))
+    result.update(_merge_cny(buckets))
     return result
+
+
+def _merge_cache(buckets, result):
+    # Legacy reports do not certify cache availability; never silently assume it.
+    unavailable = sum(b.get('cache_unavailable_calls',
+                            0 if b.get('cache_usage_available') else b.get('llm_calls', 0)) for b in buckets)
+    return cache_usage_summary(result['llm_calls'], result['input_tokens'], result['cache_hit_tokens'], unavailable)
+
+
+def _merge_cny(buckets):
+    known = round(sum(b.get('known_cost_cny', b.get('estimated_cost_cny')) or 0 for b in buckets), 10)
+    unpriced = sum(b.get('unpriced_cny_calls',
+                         0 if b.get('cost_estimate_cny_available') else b.get('llm_calls', 0)) for b in buckets)
+    return dict(estimated_cost_cny=known if unpriced == 0 else None,
+                known_cost_cny=known, cost_estimate_cny_available=unpriced == 0,
+                unpriced_cny_calls=unpriced)

@@ -102,6 +102,17 @@ def log_event(logger, level, event, exc_info=None, **fields):
     )
 
 
+def cache_usage_summary(llm_calls, input_tokens, cache_hit_tokens, unavailable_calls):
+    """Keep the legacy numeric rate; its availability must be checked first."""
+    available = llm_calls > 0 and unavailable_calls == 0 and input_tokens > 0
+    return {
+        "cache_usage_available": available,
+        "cache_status": "no_calls" if llm_calls == 0 else "available" if available else "unavailable",
+        "cache_unavailable_calls": unavailable_calls,
+        "cache_hit_rate": cache_hit_tokens / input_tokens if available else 0.0,
+    }
+
+
 @dataclass
 class UsageBucket:
     llm_calls: int = 0
@@ -111,8 +122,11 @@ class UsageBucket:
     cache_hit_tokens: int = 0
     cache_miss_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    estimated_cost_cny: float = 0.0
     duration_ms: float = 0.0
     unpriced_calls: int = 0
+    unpriced_cny_calls: int = 0
+    cache_unavailable_calls: int = 0
 
     def add(self, usage):
         self.llm_calls += 1
@@ -122,8 +136,11 @@ class UsageBucket:
         self.cache_hit_tokens += usage["cache_hit_tokens"]
         self.cache_miss_tokens += usage["cache_miss_tokens"]
         self.estimated_cost_usd += usage["estimated_cost_usd"]
+        self.estimated_cost_cny += usage.get("estimated_cost_cny") or 0.0
         self.duration_ms += usage.get("duration_ms", 0.0)
         self.unpriced_calls += int(not usage["cost_estimate_available"])
+        self.unpriced_cny_calls += int(not usage.get("cost_estimate_cny_available", False))
+        self.cache_unavailable_calls += int(not usage.get("cache_usage_available", False))
 
     def to_dict(self):
         return {
@@ -138,10 +155,16 @@ class UsageBucket:
             "estimated_cost_usd": round(self.estimated_cost_usd, 10),
             "known_cost_usd": round(self.estimated_cost_usd, 10),
             "estimated_total_cost_usd": round(self.estimated_cost_usd, 10) if self.unpriced_calls == 0 else None,
+            "estimated_cost_cny": round(self.estimated_cost_cny, 10) if self.unpriced_cny_calls == 0 else None,
+            "known_cost_cny": round(self.estimated_cost_cny, 10),
+            "cost_estimate_cny_available": self.unpriced_cny_calls == 0,
+            "unpriced_cny_calls": self.unpriced_cny_calls,
             "duration_ms": round(self.duration_ms, 2),
             "unpriced_calls": self.unpriced_calls,
             "cost_estimate_available": self.unpriced_calls == 0,
             "cost_status": "available" if self.unpriced_calls == 0 else "unavailable",
+            **cache_usage_summary(self.llm_calls, self.input_tokens, self.cache_hit_tokens,
+                                  self.cache_unavailable_calls),
         }
 
 
@@ -170,14 +193,8 @@ class UsageTracker:
     def summary(self):
         with self._lock:
             total = self._total.to_dict()
-            input_tokens = total["input_tokens"]
-            cache_hit_tokens = total["cache_hit_tokens"]
-            cache_hit_rate = (
-                cache_hit_tokens / input_tokens if input_tokens else 0.0
-            )
             total.update(
                 {
-                    "cache_hit_rate": round(cache_hit_rate, 4),
                     "currency": "USD",
                     "cost_estimate_available": self._unpriced_calls == 0,
                     "pricing_tiers": sorted(self._pricing_tiers),
@@ -241,6 +258,7 @@ def _usage_payload(usage):
             "total_tokens",
             "prompt_cache_hit_tokens",
             "prompt_cache_miss_tokens",
+            "prompt_tokens_details",
         )
         if hasattr(usage, key)
     }
@@ -250,23 +268,49 @@ def _safe_int(value):
     return value if type(value) is int and value >= 0 else 0
 
 
+def _cache_usage(payload):
+    """Read DeepSeek counters (or the documented OpenAI-compatible fallback).
+
+    A missing split is unknown, not an all-cache-miss request. A single valid
+    counter determines the other; conflicting provider fields stay unavailable.
+    """
+    input_tokens = payload.get("prompt_tokens")
+    if type(input_tokens) is not int or input_tokens < 0:
+        return 0, 0, "Provider input token count unavailable."
+    hit = payload.get("prompt_cache_hit_tokens")
+    miss = payload.get("prompt_cache_miss_tokens")
+    details = payload.get("prompt_tokens_details")
+    cached = details.get("cached_tokens") if isinstance(details, dict) else getattr(details, "cached_tokens", None)
+    for value in (hit, miss, cached):
+        if value is not None and (type(value) is not int or not 0 <= value <= input_tokens):
+            return 0, 0, "Invalid provider cache token counter."
+    if hit is not None and cached is not None and hit != cached:
+        return 0, 0, "Provider cache hit counters disagree."
+    if hit is None:
+        hit = cached
+    if hit is None and miss is None:
+        return (0, 0, "Provider cache usage unavailable; input cache split is unknown.") if input_tokens else (0, 0, None)
+    if hit is None:
+        hit = input_tokens - miss
+    if miss is None:
+        miss = input_tokens - hit
+    if hit + miss != input_tokens:
+        return 0, 0, "Provider cache hit/miss tokens do not sum to input tokens."
+    return hit, miss, None
+
+
 def _usage_error(payload):
     """Require actual counters and a determinate cache split before pricing."""
     for key in ("prompt_tokens", "completion_tokens"):
         if type(payload.get(key)) is not int or payload[key] < 0:
             return f"Provider usage missing or invalid: {key}."
-    for key in ("total_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"):
+    for key in ("total_tokens",):
         if key in payload and (type(payload[key]) is not int or payload[key] < 0):
             return f"Invalid provider token counter: {key}."
     input_tokens = payload["prompt_tokens"]
-    hit = payload.get("prompt_cache_hit_tokens")
-    miss = payload.get("prompt_cache_miss_tokens")
-    if hit is None and miss is None and input_tokens:
-        return "Provider cache usage unavailable; input cache split is unknown."
-    if any(value is not None and value > input_tokens for value in (hit, miss)):
-        return "Provider cache tokens exceed input tokens."
-    if hit is not None and miss is not None and hit + miss != input_tokens:
-        return "Provider cache hit/miss tokens do not sum to input tokens."
+    cache_error = _cache_usage(payload)[2]
+    if cache_error:
+        return cache_error
     if "total_tokens" in payload and payload["total_tokens"] != input_tokens + payload["completion_tokens"]:
         return "Provider total tokens do not sum to input/output tokens."
     return None
@@ -284,23 +328,22 @@ def record_llm_usage(model, operation, usage, duration_ms, at=None):
     total_tokens = _safe_int(
         payload.get("total_tokens") or input_tokens + output_tokens
     )
-    cache_hit_value = payload.get("prompt_cache_hit_tokens")
-    cache_miss_value = payload.get("prompt_cache_miss_tokens")
-    cache_hit_tokens = _safe_int(
-        cache_hit_value if cache_hit_value is not None
-        else max(input_tokens - _safe_int(cache_miss_value), 0) if cache_miss_value is not None else 0
-    )
-    cache_miss_tokens = _safe_int(
-        cache_miss_value
-        if cache_miss_value is not None
-        else max(input_tokens - cache_hit_tokens, 0)
-    )
-    pricing = get_model_pricing(model, at=at)
+    cache_hit_tokens, cache_miss_tokens, cache_error = _cache_usage(payload)
+    cache_available = cache_error is None and input_tokens > 0
+    pricing_at = at or datetime.now(timezone.utc)
+    pricing = get_model_pricing(model, at=pricing_at)
     cost_available = pricing["available"] and usage_error is None
     estimated_cost = (
         cache_hit_tokens * pricing["cache_hit"]
         + cache_miss_tokens * pricing["cache_miss"]
         + output_tokens * pricing["output"]
+    ) / 1_000_000
+    pricing_cny = get_model_pricing(model, at=pricing_at, currency="CNY")
+    cost_cny_available = pricing_cny["available"] and usage_error is None
+    estimated_cost_cny = (
+        cache_hit_tokens * pricing_cny["cache_hit"]
+        + cache_miss_tokens * pricing_cny["cache_miss"]
+        + output_tokens * pricing_cny["output"]
     ) / 1_000_000
     normalized = {
         "model": model,
@@ -310,12 +353,14 @@ def record_llm_usage(model, operation, usage, duration_ms, at=None):
         "total_tokens": total_tokens,
         "cache_hit_tokens": cache_hit_tokens,
         "cache_miss_tokens": cache_miss_tokens,
-        "cache_hit_rate": round(
-            cache_hit_tokens / input_tokens if input_tokens else 0.0,
-            4,
-        ),
+        **cache_usage_summary(1, input_tokens, cache_hit_tokens, int(not cache_available)),
+        "cache_usage_reason": cache_error or ("No input tokens available for a cache rate." if not input_tokens else None),
         "estimated_cost_usd": round(estimated_cost, 10) if cost_available else 0.0,
         "estimated_total_cost_usd": round(estimated_cost, 10) if cost_available else None,
+        "estimated_cost_cny": round(estimated_cost_cny, 10) if cost_cny_available else None,
+        "cost_estimate_cny_available": cost_cny_available,
+        "pricing_cny_reason": pricing_cny.get("reason") or usage_error,
+        "pricing_cny_tier": pricing_cny["tier"],
         "cost_status": "available" if cost_available else "unavailable",
         "pricing_reason": pricing.get("reason") or usage_error,
         "call_started_at": at.isoformat() if at else None,

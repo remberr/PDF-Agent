@@ -68,7 +68,9 @@ class RealPDFEvaluationTests(unittest.TestCase):
                                              '--pdf-dir',directory,'--allow-paid-api','--llm-judge','--output',str(report)])
             client = Mock()
             def completion(**kwargs):
-                prompt = kwargs['messages'][0]['content']
+                # Grounding/reference isolation applies to every message now
+                # that stable requirements have their own system message.
+                prompt = '\n'.join(message['content'] for message in kwargs['messages'])
                 is_judge = 'independent PDF answer evaluator' in prompt
                 if is_judge:
                     self.assertIn('REFERENCE_ONLY_SENTINEL', prompt)

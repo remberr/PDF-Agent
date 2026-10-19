@@ -42,6 +42,15 @@ class UsageBreakdownResponse(BaseModel):
     cache_hit_tokens: int
     cache_miss_tokens: int
     estimated_cost_usd: float
+    cost_estimate_available: bool = False
+    estimated_cost_cny: float | None = None
+    known_cost_cny: float = 0.0
+    cost_estimate_cny_available: bool = False
+    unpriced_cny_calls: int = 0
+    cache_hit_rate: float = 0.0
+    cache_usage_available: bool = False
+    cache_status: str = "unavailable"
+    cache_unavailable_calls: int = 0
 
 
 class LLMUsageResponse(UsageBreakdownResponse):

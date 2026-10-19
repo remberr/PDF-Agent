@@ -74,6 +74,8 @@ export interface Translation {
     calls: string;
     tokens: string;
     cacheHit: string;
+    cacheUnavailable: string;
+    noLlmCalls: string;
     estimatedCost: string;
     operations: string;
     unavailable: string;
@@ -170,7 +172,9 @@ export const translations: Record<Language, Translation> = {
       calls: "Calls",
       tokens: "Tokens",
       cacheHit: "Cache hit",
-      estimatedCost: "Est. cost",
+      cacheUnavailable: "Stats unavailable",
+      noLlmCalls: "No LLM calls",
+      estimatedCost: "Est. cost (USD)",
       operations: "Usage by operation",
       unavailable: "Unavailable",
       usageOperations: {
@@ -288,7 +292,9 @@ export const translations: Record<Language, Translation> = {
       calls: "调用数",
       tokens: "Token",
       cacheHit: "缓存命中",
-      estimatedCost: "预估费用",
+      cacheUnavailable: "统计不可用",
+      noLlmCalls: "无 LLM 调用",
+      estimatedCost: "预估费用（元）",
       operations: "按操作拆分",
       unavailable: "不可估算",
       usageOperations: {

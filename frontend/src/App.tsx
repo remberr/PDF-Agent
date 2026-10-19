@@ -434,6 +434,7 @@ function App() {
         </div>
         <div className={mobileView === "workflow" ? "mobile-active" : ""}>
           <WorkflowPanel
+            language={language}
             result={asking ? undefined : latestResult}
             progress={workflowProgress}
             t={t}

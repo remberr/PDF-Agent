@@ -1,4 +1,4 @@
-"""Provider USD / 1M token prices and a bounded, auditable holiday calendar.
+"""Independent official USD/CNY token prices and an auditable holiday calendar.
 
 Update this table and china_holidays.json together with source verification.
 Unknown calendar years are never guessed during potential peak hours.
@@ -12,7 +12,8 @@ from pathlib import Path
 
 
 PRICING_SOURCE = 'https://api-docs.deepseek.com/quick_start/pricing/'
-PRICING_VERIFIED_ON = '2026-10-18'
+PRICING_SOURCE_CNY = 'https://api-docs.deepseek.com/zh-cn/quick_start/pricing/'
+PRICING_VERIFIED_ON = '2026-10-19'
 BEIJING = timezone(timedelta(hours=8))
 PRICE_ENV_VARS = {
     'cache_hit': 'LLM_CACHE_HIT_COST_PER_1M_TOKENS',
@@ -22,6 +23,11 @@ PRICE_ENV_VARS = {
 MODEL_PRICING = {
     'deepseek-flash': {'cache_hit': .006, 'cache_miss': .30, 'output': 1.20},
     'deepseek-v4-pro': {'cache_hit': .044, 'cache_miss': 1.32, 'output': 3.96},
+}
+# Official peak CNY / 1M tokens; never derive these prices from USD or FX.
+MODEL_PRICING_CNY = {
+    'deepseek-flash': {'cache_hit': .04, 'cache_miss': 2.0, 'output': 8.0},
+    'deepseek-v4-pro': {'cache_hit': .30, 'cache_miss': 9.0, 'output': 27.0},
 }
 MODEL_ALIASES = {
     'deepseek-v4-flash': 'deepseek-flash',
@@ -57,14 +63,18 @@ def _unavailable(reason):
                 tier='unavailable', available=False, reason=reason)
 
 
-def get_model_pricing(model, at=None):
+def get_model_pricing(model, at=None, currency='USD'):
     """Apply peak-rate overrides before selecting the Beijing billing tier.
 
     Environment variables always denote peak USD / 1M token prices. Neither
     complete nor partial overrides bypass the calendar or price unknown models.
+    CNY uses its independent official table and is unaffected by USD overrides.
     """
+    table = {'USD': MODEL_PRICING, 'CNY': MODEL_PRICING_CNY}.get(currency)
+    if table is None:
+        return _unavailable(f'No pricing configured for currency {currency}.')
     configured = {}
-    for key, env_name in PRICE_ENV_VARS.items():
+    for key, env_name in (PRICE_ENV_VARS.items() if currency == 'USD' else ()):
         value = os.getenv(env_name)
         if value is None:
             continue
@@ -75,7 +85,7 @@ def get_model_pricing(model, at=None):
         except ValueError:
             return _unavailable(f'Invalid non-negative finite price in {env_name}.')
         configured[key] = price
-    peak_prices = MODEL_PRICING.get(MODEL_ALIASES.get(model, model))
+    peak_prices = table.get(MODEL_ALIASES.get(model, model))
     if peak_prices is None:
         return _unavailable(f'No pricing configured for model {model}.')
     try:

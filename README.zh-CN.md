@@ -21,6 +21,7 @@
 - 通过 SSE 在 React 界面实时展示工作流事件和节点耗时
 - 使用 SQLite 保存 Session 元数据，并将 FAISS 索引持久化到磁盘
 - 通过确定性的 Planner、Source 和 Reviewer 快路径降低延迟与 Token 消耗
+- 区分真实缓存未命中与统计不可用，并随界面语言展示官方人民币/美元费用估算
 - 将前端和后端打包为一个生产 Docker 服务
 
 ## 系统架构
@@ -224,6 +225,32 @@ data: {"answer":"...","sources":[...],"timings":{...},"usage":{...}}
 
 目前成本观测以单次请求和单个 Session 为范围，尚未提供持久化的全局历史成本 Dashboard。如需长期聚合，可将 JSON 日志接入外部日志平台。
 
+#### Prompt Cache 统计
+
+从服务端 Usage 中读取 `prompt_cache_hit_tokens` 和 `prompt_cache_miss_tokens`，包含 OpenAI SDK 保留的扩展字段，并兼容官方等价字段 `prompt_tokens_details.cached_tokens`。只返回一个缓存计数时，用输入总数推导另一项；计数缺失或矛盾时标记未知，不再当作全部未命中。汇总命中率按累计 Token 计算，不平均各次调用的百分比。
+
+API、SSE、日志及评估报告（含模型/操作明细）增加 `cache_status`：`available`、`unavailable`、`no_calls`，同时返回 `cache_usage_available` 和 `cache_unavailable_calls`。任一调用缺失缓存统计时，整体命中率不可用。为兼容已有 API，保留数值型 `cache_hit_rate`，仅在 `cache_usage_available` 为真时解释该数值。缓存统计是否可用与价格是否可用独立。Workflow 分别显示 **0%**、**统计不可用**、**无 LLM 调用**，较低的正命中率也不会被四舍五入为 0%。缺少新状态字段的历史结果显示统计不可用。
+
+PDF 回答把原有要求放入稳定的 system 消息，再将原始检索上下文放在对话记忆和当前问题之前。检索排序、文本块内容、引用 ID、Memory 生成和失败回退均不变，不为命中率重排、扩充或填充文档。不同问题检索到不同前缀时，服务端仍可能没有命中。
+
+新增显式付费的重复 Prompt 探针，复用一页真实 PDF 和生产 Prompt 构造函数。顺序调用 2–5 次（默认 3 次），每次最多输出 64 Token，关闭自动重试，逐次保存命中/未命中数、命中率、可用状态、耗时及预估费用。报告只保存哈希和用量，不保存 PDF 正文、Prompt、回答或 API Key。该测试检查缓存统计链路，不评估 RAG 质量；服务端没有命中时也如实记录，不以强制正命中率作为传输测试断言。
+
+```powershell
+python -m evaluation.cache_probe --pdf-path "C:/path/to/paper.pdf" --page 3 --attempts 3 --allow-paid-api --output evaluation/reports/cache-probe.json
+
+# 可选付费 unittest；普通 CI 或仅配置 API Key 都不会启用。
+$env:PDF_AGENT_RUN_CACHE_API_TESTS="1"
+$env:PDF_AGENT_CACHE_PDF_PATH="C:/path/to/paper.pdf"
+python -m unittest discover -s tests -p test_cache_probe.py -v
+Remove-Item Env:PDF_AGENT_RUN_CACHE_API_TESTS
+
+# 前端缓存状态回归测试，不付费。
+cd frontend
+npm test
+```
+
+2026-10-19 使用所提供 Attention 论文的物理第 3 页实测：3 次真实 `deepseek-flash` 请求每次输入均为 625 Token，命中数为 **0 / 384 / 384**，命中率为 **0% / 61.44% / 61.44%**，预估总费用 **$0.000567108**。这组结果不保证其他问题的缓存命中率，也不代表付费 RAG/Judge 评估通过。付费缓存集成测试已单独执行并通过；最新完整离线测试结果见双币种计价说明。该次较早的探针仅记录美元，没有可展示的历史人民币估算。
+
 ### 数据持久化
 
 - SQLite 保存 Session ID、已上传文件名、对话历史、文档数量和 Vectorstore 路径。
@@ -413,7 +440,20 @@ Embedding 首次运行可能从 Hugging Face 下载生产模型，之后复用�
 
 ### 用量与成本计算
 
-单价集中在 `utils/pricing.py`，于 2026-10-18 核对 [DeepSeek 官方美元价格](https://api-docs.deepseek.com/quick_start/pricing/)。`deepseek-flash` 与旧名称 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 使用相同 Flash 费率；保留既有 chat/reasoner 别名，新配置默认使用 `deepseek-flash`，保留用户显式设置的模型目标。
+单价集中在 `utils/pricing.py`，于 2026-10-19 核对 DeepSeek 官方[美元价格](https://api-docs.deepseek.com/quick_start/pricing/)和[人民币价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)。`deepseek-flash` 与旧名称 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 使用相同 Flash 费率；保留既有 chat/reasoner 别名，新配置默认使用 `deepseek-flash`，保留用户显式设置的模型目标。
+
+中文 Workflow 面板显示人民币（`¥`），英文显示美元（`$`），总费用与各操作明细同步切换。两种金额按同一次请求的时间戳和各自官方 Token 单价独立计算，切换语言仅选择已有金额，不使用汇率，也不额外请求 API。官方人民币单价（元/百万 Token）如下：
+
+| 模型 | Token 类型 | 谷时 | 峰时 |
+| --- | --- | --- | --- |
+| `deepseek-flash` | 缓存命中 | 0.02 | 0.04 |
+| `deepseek-flash` | 缓存未命中 | 1 | 2 |
+| `deepseek-flash` | 输出 | 4 | 8 |
+| `deepseek-v4-pro` | 缓存命中 | 0.15 | 0.30 |
+| `deepseek-v4-pro` | 缓存未命中 | 4.5 | 9 |
+| `deepseek-v4-pro` | 输出 | 13.5 | 27 |
+
+API、SSE、评估报告的总用量和模型/操作明细新增 `estimated_cost_cny`、`known_cost_cny`、`cost_estimate_cny_available`、`unpriced_cny_calls`。人民币统计不完整时总额为 `null`，不会把已知小计显示为完整账单。原美元字段和旧 `currency: USD` 保持兼容。历史结果缺少人民币数据时，中文显示不可估算，不换汇补算或显示为免费。`LLM_*_COST_PER_1M_TOKENS` 覆盖仍仅影响美元价格，人民币使用独立官方费率。本次离线验证：后端 69 项，66 项通过、3 项需显式启用的集成测试跳过；前端 6 项测试和生产构建通过。币种展示变更未新增付费请求。
 
 | 模型 | USD / 1M Tokens | 谷时 | 峰时 |
 | --- | --- | ---: | ---: |

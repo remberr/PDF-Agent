@@ -21,6 +21,7 @@ A production-oriented PDF analysis application built with **LangGraph, FastAPI, 
 - Stream live workflow events and node timings to the React interface with SSE
 - Persist session metadata in SQLite and FAISS indexes on disk
 - Reduce latency and token usage with deterministic planner, source, and reviewer fast paths
+- Distinguish real cache misses from unavailable statistics and display official CNY/USD estimates with the interface language
 - Package the frontend and backend as one production Docker service
 
 ## Architecture
@@ -224,6 +225,32 @@ Representative events include `http_request_completed`, `agent_node_completed`, 
 
 Cost observability is currently scoped to individual requests and sessions. There is no persistent, application-wide historical cost dashboard yet; JSON logs can be forwarded to an external log platform for longer-term aggregation.
 
+#### Prompt Cache Telemetry
+
+DeepSeek's `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens` are read from provider Usage, including OpenAI SDK extra fields. The documented `prompt_tokens_details.cached_tokens` is also supported; one known cache counter can determine the other from the input total. Missing or contradictory counters remain unknown instead of being counted as all misses. Aggregates use summed tokens, not the average of call percentages.
+
+`cache_status` distinguishes `available`, `unavailable`, and `no_calls`; `cache_usage_available` and `cache_unavailable_calls` accompany it in API, SSE, logs and evaluation reports, including model/operation breakdowns. A partial aggregate is unavailable. The legacy numeric `cache_hit_rate` remains for compatibility: read it only when `cache_usage_available` is true. Cache availability is independent of price availability. Workflow shows **0%**, **Stats unavailable**, or **No LLM calls** accordingly; small positive percentages are not rounded down to zero. Old saved results without availability metadata display as unavailable.
+
+PDF answers keep the original requirements in a stable system message, then put the original retrieved context before conversation memory and the current question. Retrieval ranking, chunk contents, citation IDs, memory generation and fallback answers are unchanged. Context is not sorted, expanded or padded to increase hits. Different retrieved prefixes can still miss the provider cache.
+
+An explicitly paid repeated-Prompt probe reuses one real PDF page and the production prompt formatter. It makes 2–5 sequential requests (default 3), caps each output at 64 tokens, disables automatic retries, and saves each call's hit/miss counts, rate, availability, timing and estimated cost. Reports contain hashes and usage, not PDF text, prompts, answers or API keys. This tests cache telemetry, not RAG quality; a positive hit rate is not required for the transport test to pass.
+
+```powershell
+python -m evaluation.cache_probe --pdf-path "C:/path/to/paper.pdf" --page 3 --attempts 3 --allow-paid-api --output evaluation/reports/cache-probe.json
+
+# Optional PAID unittest; API key alone never enables it in CI.
+$env:PDF_AGENT_RUN_CACHE_API_TESTS="1"
+$env:PDF_AGENT_CACHE_PDF_PATH="C:/path/to/paper.pdf"
+python -m unittest discover -s tests -p test_cache_probe.py -v
+Remove-Item Env:PDF_AGENT_RUN_CACHE_API_TESTS
+
+# Frontend cache-state regression tests, no paid calls.
+cd frontend
+npm test
+```
+
+Observed on 2026-10-19 using physical page 3 of the supplied Attention paper: three actual `deepseek-flash` calls each used 625 input tokens, with cache hits **0 / 384 / 384** and rates **0% / 61.44% / 61.44%**. Estimated total cost was **$0.000567108**. This single probe is not a general cache-hit guarantee or a paid RAG/Judge benchmark. The paid cache integration was run separately and passed; see the dual-currency pricing section for the latest complete offline test results. This earlier probe recorded USD only, so it has no historical CNY estimate to display.
+
 ### Persistence
 
 - SQLite stores session IDs, uploaded filenames, chat history, document counts, and vectorstore paths.
@@ -413,7 +440,20 @@ Validation/retrieval reports use separate mode names, `passed: null`, `generatio
 
 ### Cost estimation
 
-Prices are centralized in `utils/pricing.py`, verified against [DeepSeek's official USD pricing](https://api-docs.deepseek.com/quick_start/pricing/) on 2026-10-18. `deepseek-flash` and legacy `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` share Flash rates; existing chat/reasoner aliases remain supported. New configurations default to `deepseek-flash`; explicit existing model settings are respected.
+Prices are centralized in `utils/pricing.py`, verified against DeepSeek's official [USD](https://api-docs.deepseek.com/quick_start/pricing/) and [CNY](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/) tables on 2026-10-19. `deepseek-flash` and legacy `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` share Flash rates; existing chat/reasoner aliases remain supported. New configurations default to `deepseek-flash`; explicit existing model settings are respected.
+
+The Chinese Workflow panel displays CNY (`¥`); English displays USD (`$`), including per-operation costs. Both estimates are computed independently from official token rates at the same call timestamp. Switching language selects an existing estimate; no exchange rate or new API request is used. Official CNY prices per 1M tokens are:
+
+| Model | Token type | Off-peak CNY | Peak CNY |
+| --- | --- | --- | --- |
+| `deepseek-flash` | Cache hit | 0.02 | 0.04 |
+| `deepseek-flash` | Cache miss | 1 | 2 |
+| `deepseek-flash` | Output | 4 | 8 |
+| `deepseek-v4-pro` | Cache hit | 0.15 | 0.30 |
+| `deepseek-v4-pro` | Cache miss | 4.5 | 9 |
+| `deepseek-v4-pro` | Output | 13.5 | 27 |
+
+API/SSE/evaluation totals and model/operation breakdowns add `estimated_cost_cny`, `known_cost_cny`, `cost_estimate_cny_available`, and `unpriced_cny_calls`. An incomplete CNY total is `null`; the known subtotal is not displayed as a complete bill. Existing USD fields and legacy `currency: USD` stay compatible. Historic results without CNY data display unavailable in Chinese, never a converted or zero amount. `LLM_*_COST_PER_1M_TOKENS` overrides remain USD-only and do not affect official CNY rates. Offline validation for this change: 69 backend tests, 66 passed and 3 opt-in integrations skipped; all 6 frontend tests and the production build passed. No additional paid requests were made for currency display.
 
 | Model | USD per 1M tokens | Off-peak | Peak |
 | --- | --- | ---: | ---: |

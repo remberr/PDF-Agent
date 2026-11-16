@@ -1,7 +1,12 @@
 import json
+import logging
 
 from agent.state import empty_collaboration_notes
 from utils.llm_client import LLMClientError, chat_with_deepseek
+from utils.observability import log_event
+
+
+logger = logging.getLogger(__name__)
 
 
 def build_failed_collaboration_notes(answer, error_message):
@@ -88,9 +93,15 @@ Rules:
         ).strip()
 
     except LLMClientError as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "collaboration_failed",
+            error_type=type(exc).__name__,
+        )
         return build_failed_collaboration_notes(
             "\n\n".join(answers),
-            str(exc)
+            "The collaboration review is unavailable. Please try again later."
         )
 
     try:

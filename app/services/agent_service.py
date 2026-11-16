@@ -311,7 +311,7 @@ def iter_pdf_agent_events(session, question, request_id=None):
                 {
                     "answer": (
                         "Sorry, the PDF Agent could not complete this request. "
-                        f"Error: {exc}"
+                        "Please try again later."
                     ),
                     "collaboration_notes": state.get(
                         "collaboration_notes",

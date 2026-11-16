@@ -1,3 +1,4 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import copy_context
 from time import perf_counter
@@ -14,9 +15,11 @@ from agent.keyword_agent import keyword_agent
 from agent.compare_agent import compare_agent
 from agent.reviewer_agent import reviewer_agent
 from agent.collaboration_agent import collaboration_agent
+from utils.observability import log_event
 
 
 MAX_REVISION_COUNT = 1
+logger = logging.getLogger(__name__)
 
 
 def planner_node(state: AgentState):
@@ -169,10 +172,17 @@ def _execute_specialist_step(
         }
 
     except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "specialist_failed",
+            step=step,
+            error_type=type(exc).__name__,
+        )
         return {
             "agent": f"{step.title()} Agent",
             "status": "failed",
-            "answer": f"This step failed and was skipped: {exc}",
+            "answer": "This step failed and was skipped. Please try again later.",
             "results": []
         }
 

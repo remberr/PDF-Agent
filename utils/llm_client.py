@@ -101,7 +101,7 @@ def chat_with_deepseek(
             error_type=type(exc).__name__,
         )
         raise LLMClientError(
-            f"DeepSeek request failed: {exc}"
+            "DeepSeek request failed. Please try again later."
         ) from exc
 
     duration_ms = (perf_counter() - started_at) * 1000

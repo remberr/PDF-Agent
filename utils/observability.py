@@ -34,6 +34,34 @@ def _json_safe(value):
 
 
 class JsonFormatter(logging.Formatter):
+    def formatException(self, exc_info):
+        """Keep code locations and exception chains, never messages or source.
+
+        Exception text, notes, source lines and local values can contain PDF
+        content or provider credentials. Only code metadata is logged here.
+        """
+        lines = []
+        seen = set()
+        error, traceback = exc_info[1:]
+        while error is not None and id(error) not in seen:
+            seen.add(id(error))
+            lines.append(type(error).__name__)
+            while traceback is not None:
+                frame = traceback.tb_frame
+                module = frame.f_globals.get("__name__", "<unknown>")
+                lines.append(
+                    f"  at {module}.{frame.f_code.co_name}:{traceback.tb_lineno}"
+                )
+                traceback = traceback.tb_next
+            related = error.__cause__
+            if related is None and not error.__suppress_context__:
+                related = error.__context__
+            error = related
+            if error is not None and id(error) not in seen:
+                lines.append("Related exception:")
+                traceback = error.__traceback__
+        return "\n".join(lines)
+
     def format(self, record):
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -57,7 +85,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             payload["exception"] = {
                 "type": record.exc_info[0].__name__,
-                "message": str(record.exc_info[1]),
+                "message": "Exception details omitted for privacy.",
                 "stacktrace": self.formatException(record.exc_info),
             }
 

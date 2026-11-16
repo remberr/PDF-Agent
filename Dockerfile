@@ -38,9 +38,9 @@ RUN useradd --create-home --uid 10001 appuser \
 
 USER appuser
 
-# Bake the embedding model into the image so the first PDF upload is ready to run.
-RUN python -c "from langchain_huggingface import HuggingFaceEmbeddings; HuggingFaceEmbeddings(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
-
+# Cache the production model independently of changes to the rest of the source.
+COPY --chown=appuser:appuser utils/embeddings.py ./utils/embeddings.py
+RUN python -c "from utils.embeddings import create_bge_embeddings; create_bge_embeddings(local_files_only=False)"
 COPY --chown=appuser:appuser . ./
 COPY --from=frontend-builder --chown=appuser:appuser \
     /frontend/dist ./frontend/dist

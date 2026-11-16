@@ -133,10 +133,11 @@ def _thresholds(args):
 
 def _write_report(report, args):
     rendered = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)
-    print(rendered)
     if args.output:
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         Path(args.output).write_text(rendered + '\n', encoding='utf-8')
+    # Keep redirected Windows consoles safe without losing Unicode in the file.
+    print(json.dumps(report, ensure_ascii=True, indent=2, allow_nan=False))
 
 
 def _corpus_check_report(cases, corpus, validation, args):
@@ -175,103 +176,107 @@ def run(args):
         args.output = Path(f'evaluation/reports/real-pdf{suffix}.json')
     cases = _select_cases(load_cases(args.dataset), args)
     corpus = None
-    validation = None
-    if args.mode == 'real-pdf':
-        if not args.pdf_dir:
-            raise ValueError('--pdf-dir is required for real-pdf mode; PDFs remain local.')
-        corpus = RealPDFCorpus(args.pdf_dir, args.manifest)
-        validation = corpus.validate_evidence(cases)
-        if args.validate_only or args.retrieval_only:
-            _write_report(_corpus_check_report(cases, corpus, validation, args), args)
-            return 0
+    try:
+        validation = None
+        if args.mode == 'real-pdf':
+            if not args.pdf_dir:
+                raise ValueError('--pdf-dir is required for real-pdf mode; PDFs remain local.')
+            corpus = RealPDFCorpus(args.pdf_dir, args.manifest)
+            validation = corpus.validate_evidence(cases)
+            if args.validate_only or args.retrieval_only:
+                _write_report(_corpus_check_report(cases, corpus, validation, args), args)
+                return 0
 
-    # Payment guards follow the actual deterministic planner, not editable
-    # expected routes in reference annotations.
-    requires_llm = args.llm_judge or any(plan_steps_fast(case['question']) != ['source'] for case in cases)
-    if args.mode in ('live', 'real-pdf') and requires_llm:
-        if args.mode == 'real-pdf' and not args.allow_paid_api:
-            raise ValueError('Real PDF generation/Judge requires --allow-paid-api. Use --validate-only or --retrieval-only for offline checks.')
-        if not os.getenv('DEEPSEEK_API_KEY'):
-            raise ValueError('DEEPSEEK_API_KEY is required for the selected generation/Judge cases.')
-    graph = build_pdf_agent_graph() if args.mode != 'routing' else None
-    results = []
-    for case in cases:
-        # Build the index outside timed Agent/Judge work. Never use annotations
-        # as documents or state inputs, including for unanswerable cases.
-        vectorstore = corpus.vectorstore_for(case['pdf_files']) if corpus else None
-        agent_tracker = new_usage_tracker()
-        output = {'answer': '', 'steps': [], 'sources': [], 'revision_count': 0}
-        agent_error = None
-        started = perf_counter()
-        with observability_context(session_id=f"evaluation:{case['id']}:agent", usage_tracker=agent_tracker):
-            try:
-                if args.mode == 'routing':
-                    output = _run_routing_case(case)
-                else:
-                    output = _run_live_case(case, graph, vectorstore, case.get('pdf_files'))
-            except Exception as exc:
-                agent_error = f'{type(exc).__name__}: {exc}'
-        elapsed = round((perf_counter() - started) * 1000, 2)
-        output['latency_ms'] = elapsed
-        agent_usage = agent_tracker.summary() | {'elapsed_ms': elapsed}
-        result = {
-            'id': case['id'], 'question': case['question'],
-            'expected_steps': case.get('expected_steps', []), 'actual_steps': output['steps'],
-            'agent_status': 'failed' if agent_error else 'completed',
-            'agent_usage': agent_usage, 'usage': agent_usage,
-        }
-        if agent_error:
-            result['agent_error'] = agent_error
-        if args.mode != 'routing':
-            result.update(metrics=evaluate_output(case, output), answer=output['answer'], sources=output['sources'])
-        else:
-            result['metrics'] = {'route_exact_match': float(output['steps'] == case.get('expected_steps', []))}
-        if corpus:
-            result['pdf_files'] = case['pdf_files']
-            result['annotation'] = case['annotation']
-            result['answerability'] = case['answerability']
-        judge_tracker = new_usage_tracker()
-        judge_elapsed = 0.0
-        result['judge_status'] = 'not_requested'
-        if args.llm_judge and not agent_error:
+        # Payment guards follow the actual deterministic planner, not editable
+        # expected routes in reference annotations.
+        requires_llm = args.llm_judge or any(plan_steps_fast(case['question']) != ['source'] for case in cases)
+        if args.mode in ('live', 'real-pdf') and requires_llm:
+            if args.mode == 'real-pdf' and not args.allow_paid_api:
+                raise ValueError('Real PDF generation/Judge requires --allow-paid-api. Use --validate-only or --retrieval-only for offline checks.')
+            if not os.getenv('DEEPSEEK_API_KEY'):
+                raise ValueError('DEEPSEEK_API_KEY is required for the selected generation/Judge cases.')
+        graph = build_pdf_agent_graph() if args.mode != 'routing' else None
+        results = []
+        for case in cases:
+            # Build the index outside timed Agent/Judge work. Never use annotations
+            # as documents or state inputs, including for unanswerable cases.
+            vectorstore = corpus.vectorstore_for(case['pdf_files']) if corpus else None
+            agent_tracker = new_usage_tracker()
+            output = {'answer': '', 'steps': [], 'sources': [], 'revision_count': 0}
+            agent_error = None
             started = perf_counter()
-            with observability_context(session_id=f"evaluation:{case['id']}:judge", usage_tracker=judge_tracker):
+            with observability_context(session_id=f"evaluation:{case['id']}:agent", usage_tracker=agent_tracker):
                 try:
-                    result['llm_judge'] = _judge_output(case, output)
-                    result['judge_status'] = 'succeeded'
+                    if args.mode == 'routing':
+                        output = _run_routing_case(case)
+                    else:
+                        output = _run_live_case(case, graph, vectorstore, case.get('pdf_files'))
                 except Exception as exc:
-                    # Usage was recorded before parsing/validation; preserve it
-                    # even on transport errors, bad JSON or invalid scores.
-                    result['judge_status'] = 'failed'
-                    result['llm_judge_error'] = f'{type(exc).__name__}: {exc}'
-            judge_elapsed = round((perf_counter() - started) * 1000, 2)
-        elif args.llm_judge:
-            result['judge_status'] = 'skipped_agent_error'
-        result['judge_usage'] = judge_tracker.summary() | {'elapsed_ms': judge_elapsed}
-        result['total_usage'] = merge_usage([agent_usage, result['judge_usage']])
-        results.append(result)
+                    agent_error = f'{type(exc).__name__}: {exc}'
+            elapsed = round((perf_counter() - started) * 1000, 2)
+            output['latency_ms'] = elapsed
+            agent_usage = agent_tracker.summary() | {'elapsed_ms': elapsed}
+            result = {
+                'id': case['id'], 'question': case['question'],
+                'expected_steps': case.get('expected_steps', []), 'actual_steps': output['steps'],
+                'agent_status': 'failed' if agent_error else 'completed',
+                'agent_usage': agent_usage, 'usage': agent_usage,
+            }
+            if agent_error:
+                result['agent_error'] = agent_error
+            if args.mode != 'routing':
+                result.update(metrics=evaluate_output(case, output), answer=output['answer'], sources=output['sources'])
+            else:
+                result['metrics'] = {'route_exact_match': float(output['steps'] == case.get('expected_steps', []))}
+            if corpus:
+                result['pdf_files'] = case['pdf_files']
+                result['annotation'] = case['annotation']
+                result['answerability'] = case['answerability']
+            judge_tracker = new_usage_tracker()
+            judge_elapsed = 0.0
+            result['judge_status'] = 'not_requested'
+            if args.llm_judge and not agent_error:
+                started = perf_counter()
+                with observability_context(session_id=f"evaluation:{case['id']}:judge", usage_tracker=judge_tracker):
+                    try:
+                        result['llm_judge'] = _judge_output(case, output)
+                        result['judge_status'] = 'succeeded'
+                    except Exception as exc:
+                        # Usage was recorded before parsing/validation; preserve it
+                        # even on transport errors, bad JSON or invalid scores.
+                        result['judge_status'] = 'failed'
+                        result['llm_judge_error'] = f'{type(exc).__name__}: {exc}'
+                judge_elapsed = round((perf_counter() - started) * 1000, 2)
+            elif args.llm_judge:
+                result['judge_status'] = 'skipped_agent_error'
+            result['judge_usage'] = judge_tracker.summary() | {'elapsed_ms': judge_elapsed}
+            result['total_usage'] = merge_usage([agent_usage, result['judge_usage']])
+            results.append(result)
 
-    summary = summarize_results(results, args.mode)
-    if args.llm_judge:
-        summary['llm_judge_success_rate'] = round(sum(r['judge_status'] == 'succeeded' for r in results) / len(results), 4)
-        summary.setdefault('llm_judge_average', 0.0)
-    thresholds = _thresholds(args)
-    passed = all(summary[metric] >= minimum for metric, minimum in thresholds.items()) and not any('agent_error' in r for r in results)
-    report = {
-        'schema_version': 2, 'generated_at': datetime.now(timezone.utc).isoformat(),
-        'mode': args.mode, 'dataset': str(args.dataset),
-        'dataset_sha256': hashlib.sha256(Path(args.dataset).read_bytes()).hexdigest(),
-        'agent_model': get_deepseek_model(),
-        'passed': passed, 'thresholds': thresholds, 'summary': summary, 'cases': results,
-        'workflow_executed': args.mode != 'routing',
-        'generation_executed': args.mode != 'routing' and summary['agent_usage']['llm_calls'] > 0,
-        'rag_executed': args.mode == 'real-pdf' and summary['agent_usage']['llm_calls'] > 0,
-        'quality_status': 'provisional_llm_judged' if args.llm_judge and corpus else 'llm_judged' if args.llm_judge else 'structural_metrics_only',
-    }
-    if corpus:
-        report.update(corpus=corpus.metadata(), reference_validation=validation)
-    _write_report(report, args)
-    return 0 if passed else 1
+        summary = summarize_results(results, args.mode)
+        if args.llm_judge:
+            summary['llm_judge_success_rate'] = round(sum(r['judge_status'] == 'succeeded' for r in results) / len(results), 4)
+            summary.setdefault('llm_judge_average', 0.0)
+        thresholds = _thresholds(args)
+        passed = all(summary[metric] >= minimum for metric, minimum in thresholds.items()) and not any('agent_error' in r for r in results)
+        report = {
+            'schema_version': 2, 'generated_at': datetime.now(timezone.utc).isoformat(),
+            'mode': args.mode, 'dataset': str(args.dataset),
+            'dataset_sha256': hashlib.sha256(Path(args.dataset).read_bytes()).hexdigest(),
+            'agent_model': get_deepseek_model(),
+            'passed': passed, 'thresholds': thresholds, 'summary': summary, 'cases': results,
+            'workflow_executed': args.mode != 'routing',
+            'generation_executed': args.mode != 'routing' and summary['agent_usage']['llm_calls'] > 0,
+            'rag_executed': args.mode == 'real-pdf' and summary['agent_usage']['llm_calls'] > 0,
+            'quality_status': 'provisional_llm_judged' if args.llm_judge and corpus else 'llm_judged' if args.llm_judge else 'structural_metrics_only',
+        }
+        if corpus:
+            report.update(corpus=corpus.metadata(), reference_validation=validation)
+        _write_report(report, args)
+        return 0 if passed else 1
+    finally:
+        if corpus is not None:
+            corpus.close()
 
 
 def build_parser():
@@ -288,7 +293,7 @@ def build_parser():
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     checks = parser.add_mutually_exclusive_group()
     checks.add_argument("--validate-only", action="store_true", help="Validate PDF hashes/pages/evidence, no embeddings or LLM.")
-    checks.add_argument("--retrieval-only", action="store_true", help="Real embeddings/FAISS retrieval, no generation or Judge.")
+    checks.add_argument("--retrieval-only", action="store_true", help="Real embeddings/pgvector retrieval, no generation or Judge.")
     parser.add_argument("--allow-paid-api", action="store_true", help="Explicitly enable real PDF paid generation/Judge.")
     parser.add_argument("--case", action="append", help="Run one case ID.")
     parser.add_argument("--limit", type=int)

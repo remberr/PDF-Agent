@@ -1,14 +1,16 @@
 import os
 import logging
 import tempfile
+import asyncio
+import hashlib
 from time import perf_counter
 
 from fastapi import UploadFile
 from langchain_community.document_loaders import PyPDFLoader
 
-from app.services.session_store import save_session
+from app.services.postgres_store import commit_document, get_session
 from utils.text_splitter import split_documents
-from utils.vectorstore import create_vectorstore, save_vectorstore
+from utils.embeddings import get_bge_embeddings
 from utils.observability import log_event
 
 
@@ -51,24 +53,28 @@ async def load_pdf_into_session(session, uploaded_file: UploadFile):
             tmp_file.write(pdf_bytes)
             pdf_path = tmp_file.name
 
-        docs = parse_pdf_documents(pdf_path, uploaded_file.filename)
+        def index_document():
+            docs = parse_pdf_documents(pdf_path, uploaded_file.filename)
+            chunks = split_documents(docs)
+            vectors = get_bge_embeddings().embed_documents([item.page_content for item in chunks])
+            committed = commit_document(session['session_id'], uploaded_file.filename,
+                len(docs), chunks, vectors, size_bytes=len(pdf_bytes),
+                sha256=hashlib.sha256(pdf_bytes).hexdigest())
+            return docs, chunks, committed, get_session(session['session_id'])
 
-        session["loaded_pdfs"].append(uploaded_file.filename)
-        session["document_count"] = session.get("document_count", 0) + len(docs)
-
-        chunks = split_documents(docs)
-
-        if session["vectorstore"] is None:
-            session["vectorstore"] = create_vectorstore(chunks)
-
-        else:
-            session["vectorstore"].add_documents(chunks)
-
-        save_vectorstore(
-            session["vectorstore"],
-            session["vectorstore_path"]
-        )
-        save_session(session)
+        indexing = asyncio.create_task(asyncio.to_thread(index_document))
+        try:
+            docs, chunks, committed, refreshed = await asyncio.shield(indexing)
+        except asyncio.CancelledError:
+            # A running worker cannot be cancelled; keep its temporary PDF alive.
+            try:
+                await indexing
+            except Exception:
+                logger.warning('Cancelled PDF indexing worker failed.')
+            raise
+        if refreshed is None:
+            raise LookupError('Session no longer exists.')
+        session.update(refreshed)
 
         log_event(
             logger,
@@ -82,7 +88,7 @@ async def load_pdf_into_session(session, uploaded_file: UploadFile):
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
         )
 
-        return True
+        return committed
 
     except Exception as exc:
         log_event(

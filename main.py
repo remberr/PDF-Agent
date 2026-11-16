@@ -194,7 +194,10 @@ if st.session_state.all_docs and new_pdf_loaded:
     with st.spinner("Building vectorstore..."):
 
         chunks = split_documents(st.session_state.all_docs)
-        st.session_state.vectorstore = create_vectorstore(chunks)
+        replacement = create_vectorstore(chunks)
+        if st.session_state.vectorstore is not None:
+            st.session_state.vectorstore.close()
+        st.session_state.vectorstore = replacement
     
     st.success("Vectorstore built successfully!")
 
@@ -217,6 +220,8 @@ else:
 if st.button("Clear all PDFs and chat history"):
 
     cleanup_temp_pdfs()
+    if st.session_state.vectorstore is not None:
+        st.session_state.vectorstore.close()
 
     st.session_state.all_docs = []
     st.session_state.loaded_pdfs = []

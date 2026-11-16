@@ -8,9 +8,14 @@ langchain-community>=0.4.2
 langchain-text-splitters>=1.1.2
 langchain-huggingface>=1.2.2
 
-faiss-cpu>=1.14.3
 sentence-transformers>=5.6.0
-pypdf>=6.14.0
+pypdf==6.16.2
 
 openai>=2.43.0
 python-dotenv>=1.2.2
+
+# Keep the database stack aligned with requirements.api.txt.
+SQLAlchemy==2.0.52
+psycopg[binary]==3.3.9
+alembic==1.20.1
+pgvector==0.4.2

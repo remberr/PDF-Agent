@@ -50,6 +50,47 @@ jobs:
           --mode routing
           --output evaluation-report.json
 
+  postgres-integration:
+    name: Local PostgreSQL and pgvector integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd
+        env:
+          POSTGRES_USER: pdf_agent
+          POSTGRES_DB: pdf_agent_test
+          # Disposable loopback CI database only, never deployment configuration.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:55433:5432
+        options: >-
+          --health-cmd "pg_isready -U pdf_agent -d pdf_agent_test"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://pdf_agent@127.0.0.1:55433/pdf_agent_test
+      PDF_AGENT_RUN_POSTGRES_TESTS: "1"
+      PDF_AGENT_RUN_LEGACY_RECOVERY_TESTS: "1"
+      PDF_AGENT_RUN_PAID_TESTS: "0"
+      PDF_AGENT_RUN_CACHE_API_TESTS: "0"
+      PDF_AGENT_RUN_LOCAL_PDF_TESTS: "0"
+      HF_HUB_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.api.txt
+            requirements.migration.txt
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements.migration.txt
+      - name: Test real PostgreSQL storage and offline regressions
+        run: python -m unittest discover -s tests -v
+
   frontend-build:
     name: Frontend build
     runs-on: ubuntu-latest
@@ -85,6 +126,7 @@ jobs:
     needs:
       - backend-tests
       - frontend-build
+      - postgres-integration
 
     steps:
       - name: Check out repository

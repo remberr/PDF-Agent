@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.main import app
-from app.services import session_store
+from migration_tools import legacy_session_store as session_store
 
 
 class SessionLifecycleTests(unittest.TestCase):

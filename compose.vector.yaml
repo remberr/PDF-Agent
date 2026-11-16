@@ -1,0 +1,44 @@
+# Isolated local migration workspace; never reuse the old postgres/data volumes.
+name: pdf-agent-vector-local
+services:
+  db:
+    image: pgvector/pgvector:pg17@sha256:b513c48566e4777cd3370451400000c78eda6a08131d68f4c31d4a76f27bd8fd
+    environment:
+      POSTGRES_USER: pdf_agent
+      POSTGRES_DB: pdf_agent_test
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55433}:5432"
+    volumes:
+      - vector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdf_agent -d pdf_agent_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  migrate:
+    profiles: [app]
+    image: pdf-agent:pgvector-local
+    build: .
+    command: [python, -m, alembic, upgrade, head]
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    profiles: [app]
+    image: pdf-agent:pgvector-local
+    ports:
+      - "127.0.0.1:${PDF_AGENT_PORT:-8001}:8000"
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-}
+      SESSION_RETENTION_ENABLED: "false"
+      HF_HUB_OFFLINE: "1"
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+volumes:
+  vector-data:

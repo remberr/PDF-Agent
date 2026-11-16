@@ -29,6 +29,20 @@ class LocalTestEmbeddings(Embeddings):
         return [self.embed_query(text) for text in texts]
 
 
+class ControlledIndex:
+    """Offline orchestration fixture; real SQL retrieval is tested in test_pgvector_storage."""
+    def __init__(self, documents, **kwargs):
+        self.documents = documents
+
+    def similarity_search(self, query, k=4):
+        model = LocalTestEmbeddings()
+        query_vector = model.embed_query(query)
+        return sorted(self.documents, key=lambda d: -sum(a*b for a,b in zip(query_vector, model.embed_query(d.page_content))))[:k]
+
+    def close(self):
+        pass
+
+
 class RealPDFEvaluationTests(unittest.TestCase):
     def test_dataset_is_annotated_and_keeps_controlled_cases_separate(self):
         cases = load_cases(DEFAULT_REAL_DATASET)
@@ -58,7 +72,7 @@ class RealPDFEvaluationTests(unittest.TestCase):
                 'annotation':{'status':'pending_human_review'}}
         return manifest, docs, case
 
-    def test_real_faiss_retrieval_has_no_reference_leakage_and_usage_isolated(self):
+    def test_controlled_retrieval_has_no_reference_leakage_and_usage_isolated(self):
         with tempfile.TemporaryDirectory() as directory:
             manifest, docs, case = self.fixture(directory)
             dataset = Path(directory) / 'cases.json'
@@ -84,7 +98,8 @@ class RealPDFEvaluationTests(unittest.TestCase):
                                        usage={'prompt_tokens':100,'completion_tokens':10})
             client.chat.completions.create.side_effect = completion
             with patch('evaluation.real_pdf.parse_pdf_documents', return_value=docs) as parser, \
-                 patch('utils.vectorstore.get_embeddings', return_value=LocalTestEmbeddings()), \
+                 patch('evaluation.real_pdf.create_vectorstore', side_effect=ControlledIndex), \
+                 patch('evaluation.real_pdf.get_embeddings', return_value=LocalTestEmbeddings()), \
                  patch('utils.llm_client.get_deepseek_client', return_value=client), \
                  patch.dict(os.environ, {'DEEPSEEK_API_KEY':'unit-only'}), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(run(args), 0)
@@ -150,8 +165,12 @@ class RealPDFEvaluationTests(unittest.TestCase):
 
 @unittest.skipUnless(os.getenv('PDF_AGENT_RUN_LOCAL_PDF_TESTS') == '1', 'Requires local PDFs and cached production embeddings; opt in explicitly.')
 class LocalPDFIntegrationTests(unittest.TestCase):
-    def test_production_parser_embeddings_faiss(self):
+    def test_production_parser_embeddings_pgvector(self):
+        from app.db.runtime import dispose_engine
+
         corpus = RealPDFCorpus(os.environ['PDF_AGENT_EVAL_PDF_DIR'])
+        self.addCleanup(dispose_engine)
+        self.addCleanup(corpus.close)
         cases = load_cases(DEFAULT_REAL_DATASET)
         self.assertEqual(corpus.validate_evidence(cases)['case_count'], 30)
         index = corpus.vectorstore_for([f['filename'] for f in corpus.manifest])
@@ -162,7 +181,7 @@ class LocalPDFIntegrationTests(unittest.TestCase):
 @unittest.skipUnless(os.getenv('PDF_AGENT_RUN_PAID_TESTS') == '1', 'PAID DeepSeek API integration: never enabled by ordinary CI or API key alone.')
 class PaidPDFIntegrationTests(unittest.TestCase):
     def test_real_rag_and_judge_report(self):
-        # This invokes real production embeddings, FAISS, LangGraph and DeepSeek.
+        # This invokes real production embeddings, pgvector, LangGraph and DeepSeek.
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)/'paid.json'
             args = build_parser().parse_args(['--mode','real-pdf','--pdf-dir',os.environ['PDF_AGENT_EVAL_PDF_DIR'],

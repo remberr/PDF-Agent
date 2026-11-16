@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
+from app.db.runtime import dispose_engine
 from app.services.session_store import (
     SESSION_CLEANUP_INTERVAL_SECONDS,
     cleanup_expired_sessions,
@@ -57,7 +58,7 @@ async def session_cleanup_loop():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    init_session_store()
+    await asyncio.to_thread(init_session_store)
     await asyncio.to_thread(cleanup_expired_sessions)
     cleanup_task = asyncio.create_task(session_cleanup_loop())
 
@@ -67,6 +68,7 @@ async def lifespan(_app: FastAPI):
         cleanup_task.cancel()
         with suppress(asyncio.CancelledError):
             await cleanup_task
+        await asyncio.to_thread(dispose_engine)
 
 
 app = FastAPI(

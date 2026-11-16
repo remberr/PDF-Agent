@@ -1,0 +1,3 @@
+# Offline legacy snapshot, recovery and FAISS comparison only.
+-r requirements.api.txt
+faiss-cpu==1.15.0

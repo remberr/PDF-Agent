@@ -1,72 +1,25 @@
-import logging
-from threading import Lock
+"""PostgreSQL vector factory for isolated evaluation and prototype scopes."""
+from collections import defaultdict
+from utils.embeddings import BGE_PROFILE, get_bge_embeddings
+from utils.pgvector_store import SessionVectorStore
 
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-
-
-EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-
-logger = logging.getLogger(__name__)
-_embeddings: HuggingFaceEmbeddings | None = None
-_embeddings_lock = Lock()
+EMBEDDING_MODEL = BGE_PROFILE['model']
+get_embeddings = get_bge_embeddings
 
 
-def _create_embeddings(local_files_only: bool) -> HuggingFaceEmbeddings:
-    return HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL,
-        model_kwargs={"local_files_only": local_files_only},
-    )
-
-
-def get_embeddings() -> HuggingFaceEmbeddings:
-    global _embeddings
-
-    if _embeddings is not None:
-        return _embeddings
-
-    with _embeddings_lock:
-        if _embeddings is not None:
-            return _embeddings
-
-        try:
-            _embeddings = _create_embeddings(local_files_only=True)
-        except OSError:
-            logger.info(
-                "Embedding model is not cached locally; downloading %s.",
-                EMBEDDING_MODEL,
-            )
-            _embeddings = _create_embeddings(local_files_only=False)
-
-    return _embeddings
-
-
-def create_vectorstore(chunks):
-    embeddings = get_embeddings()
-
-    vectorstore = FAISS.from_documents(
-        documents=chunks,
-        embedding=embeddings
-    )
-
-    return vectorstore
-
-
-def save_vectorstore(vectorstore, path):
-    """
-    Save a FAISS vectorstore to disk.
-    """
-
-    vectorstore.save_local(path)
-
-
-def load_vectorstore(path):
-    """
-    Load a FAISS vectorstore from disk.
-    """
-
-    return FAISS.load_local(
-        path,
-        get_embeddings(),
-        allow_dangerous_deserialization=True
-    )
+def create_vectorstore(chunks, *, embeddings=None):
+    from app.services.postgres_store import create_session, commit_document, delete_session
+    model = embeddings if embeddings is not None else get_embeddings()
+    vectors = model.embed_documents([item.page_content for item in chunks])
+    groups = defaultdict(list)
+    for item, vector in zip(chunks, vectors):
+        groups[item.metadata['source']].append((item, vector))
+    sid = create_session()
+    try:
+        for filename, group in groups.items():
+            commit_document(sid, filename, len({d.metadata.get('page') for d,v in group}),
+                            [d for d,v in group], [v for d,v in group])
+    except BaseException:
+        delete_session(sid)
+        raise
+    return SessionVectorStore(sid, embeddings=model)

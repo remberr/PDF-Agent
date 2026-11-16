@@ -1,4 +1,4 @@
-"""Local PDF corpus, verifiable references and production FAISS retrieval.
+"""Local PDF corpus, verifiable references and production pgvector retrieval.
 
 No reference annotations are passed to the index or workflow. Only the chosen
 corpus filenames (the equivalent of uploaded PDFs) constrain retrieval.
@@ -12,7 +12,26 @@ from time import perf_counter
 
 from app.services.pdf_service import parse_pdf_documents
 from utils.text_splitter import split_documents
-from utils.vectorstore import EMBEDDING_MODEL, create_vectorstore
+from utils.vectorstore import EMBEDDING_MODEL, create_vectorstore, get_embeddings
+
+
+class CorpusEmbeddings:
+    """Reuse text embeddings only within one evaluation; references never enter here."""
+    def __init__(self):
+        self.delegate = get_embeddings()
+        self.cache = {}
+
+    def embed_documents(self, texts):
+        missing = list(dict.fromkeys(text for text in texts if text not in self.cache))
+        if missing:
+            vectors = self.delegate.embed_documents(missing)
+            if len(vectors) != len(missing):
+                raise ValueError('Embedding count mismatch.')
+            self.cache.update(zip(missing, vectors))
+        return [self.cache[text] for text in texts]
+
+    def embed_query(self, text):
+        return self.delegate.embed_query(text)
 
 
 DEFAULT_REAL_DATASET = Path(__file__).with_name('real_pdf_cases.json')
@@ -107,7 +126,9 @@ class RealPDFCorpus:
         if key not in self.indexes:
             started = perf_counter()
             chunks = [doc for name in key for doc in self.chunks[name]]
-            self.indexes[key] = create_vectorstore(chunks)
+            if not hasattr(self, '_embeddings'):
+                self._embeddings = CorpusEmbeddings()
+            self.indexes[key] = create_vectorstore(chunks, embeddings=self._embeddings)
             self.index_build_ms += (perf_counter() - started) * 1000
         return self.indexes[key]
 
@@ -117,3 +138,10 @@ class RealPDFCorpus:
                 'index_scope_count': len(self.indexes),
                 'splitter': {'chunk_size': 1200, 'chunk_overlap': 250},
                 'reference_evidence_in_agent_context': False}
+
+    def close(self):
+        for index in self.indexes.values():
+            index.close()
+        self.indexes.clear()
+        if hasattr(self, '_embeddings'):
+            self._embeddings.cache.clear()

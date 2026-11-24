@@ -33,10 +33,16 @@ import type {
   WorkflowProgress,
 } from "./types";
 
-const SESSION_STORAGE_KEY = "pdf-agent-session";
+const SESSION_STORAGE_KEY = "pdf-agent-session-v2";
 const LANGUAGE_STORAGE_KEY = "pdf-agent-language";
 const conversationKey = (sessionId: string) =>
   `pdf-agent-conversation-${sessionId}`;
+
+async function openSession(signal: AbortSignal): Promise<SessionDetail> {
+  const created = await createSession(signal);
+  // Confirm the browser retained the server-issued cookie before storing the locator.
+  return getSession(created.session_id, signal);
+}
 
 function localizedError(
   error: unknown,
@@ -103,7 +109,7 @@ function App() {
       catch { if (current()) setBackendStatus('offline'); }
       if (!current()) return;
       const stored = safeStorage('get', SESSION_STORAGE_KEY);
-      if (typeof stored === 'string' && stored) {
+      if (typeof stored === 'string' && /^[a-f0-9]{32}$/.test(stored)) {
         try {
           const restored = await getSession(stored, lease.signal);
           if (!current()) return;
@@ -117,16 +123,22 @@ function App() {
             setBackendStatus('offline'); setUploadError(translations[language].errors.apiUnavailable);
             return;
           }
-          safeStorage('remove', SESSION_STORAGE_KEY);
-          // Keep the old conversation archive even when the server reports 404.
+          if (safeStorage('get', SESSION_STORAGE_KEY) === stored) safeStorage('remove', SESSION_STORAGE_KEY);
+          setUploadError(translations[language].errors.sessionUnavailable);
+          return;
         }
       }
       try {
-        const created = await createSession(lease.signal);
+        const created = await openSession(lease.signal);
         if (!current()) return;
         if (safeStorage('set', SESSION_STORAGE_KEY, created.session_id) === false) setStorageWarning(true);
-        setSession(emptySession(created.session_id)); setTurns([]);
-      } catch { if (current()) setBackendStatus('offline'); }
+        setSession(created); setTurns([]);
+      } catch (error) {
+        if (!current()) return;
+        setBackendStatus('offline');
+        setUploadError(error instanceof ApiError && [403, 404].includes(error.status)
+          ? translations[language].errors.cookieUnavailable : translations[language].errors.createSession);
+      }
     };
     void bootstrap().finally(() => { if (current()) setConversationReady(true); scope.finish(lease); });
     return () => scope.invalidate();
@@ -173,27 +185,43 @@ function App() {
     }} : current);
   };
 
+  const loseSession = (sessionId: string) => {
+    requests.current.invalidate();
+    if (safeStorage('get', SESSION_STORAGE_KEY) === sessionId
+      && safeStorage('remove', SESSION_STORAGE_KEY) === false) setStorageWarning(true);
+    setSession(null); setTurns([]); setQuestion(''); setWorkflowProgress(undefined);
+    setUploading(false); setAsking(false); setUploadError(t.errors.sessionUnavailable);
+  };
+
   const handleNewSession = async () => {
     const scope = requests.current;
-    if (scope.has('session-change')) return;
-    if (turns.length > 0 && !window.confirm(t.session.confirmNew)) return;
+    if (scope.has('session-change') || scope.has('bootstrap')) return;
+    if ((turns.length > 0 || session?.loaded_pdfs.length || session?.message_count)
+      && !window.confirm(t.session.confirmNew)) return;
     scope.invalidate(); cancelAsk();
     setUploading(false); setUploadError(''); setQuestion(''); setWorkflowProgress(undefined);
     const lease = scope.start('session-change');
     try {
       const previousSessionId = session?.session_id;
-      const created = await createSession(lease.signal);
+      const created = await openSession(lease.signal);
       if (!scope.isCurrent(lease)) return;
+      let previousDeletionFailed = false;
       if (previousSessionId) {
-        await deleteSession(previousSessionId, lease.signal).catch(() => undefined);
+        try { await deleteSession(previousSessionId, lease.signal); }
+        catch { previousDeletionFailed = true; }
         if (!scope.isCurrent(lease)) return;
         if (safeStorage('remove', conversationKey(previousSessionId)) === false) setStorageWarning(true);
       }
       if (safeStorage('set', SESSION_STORAGE_KEY, created.session_id) === false) setStorageWarning(true);
-      setSession(emptySession(created.session_id)); setTurns([]);
+      setSession(created); setTurns([]);
+      if (previousDeletionFailed) setUploadError(t.errors.previousDeletionUnconfirmed);
       setBackendStatus('online'); setMobileView('documents'); setConversationReady(true);
     } catch (error) {
-      if (scope.isCurrent(lease)) { setBackendStatus('offline'); setUploadError(localizedError(error, t, t.errors.createSession)); }
+      if (scope.isCurrent(lease)) {
+        setBackendStatus('offline');
+        setUploadError(error instanceof ApiError && [403, 404].includes(error.status)
+          ? t.errors.cookieUnavailable : localizedError(error, t, t.errors.createSession));
+      }
     } finally { scope.finish(lease); }
   };
 
@@ -208,7 +236,9 @@ function App() {
       setSession(current => current?.session_id === lease.sessionId ? restored : current);
       setBackendStatus('online'); setUploadError('');
     } catch (error) {
-      if (scope.isCurrent(lease)) setUploadError(localizedError(error, t, t.errors.apiUnavailable));
+      if (!scope.isCurrent(lease)) return;
+      if (error instanceof ApiError && error.status === 404) loseSession(lease.sessionId);
+      else setUploadError(localizedError(error, t, t.errors.apiUnavailable));
     } finally { scope.finish(lease); }
   };
 
@@ -225,7 +255,11 @@ function App() {
       setSession(current => current?.session_id === lease.sessionId ? {...current,
         loaded_pdfs: response.loaded_pdfs, total_documents: response.total_documents, has_vectorstore: true} : current);
       setBackendStatus('online'); setMobileView('chat');
-    } catch (error) { if (scope.isCurrent(lease)) setUploadError(localizedError(error, t, t.errors.uploadFailed)); }
+    } catch (error) {
+      if (!scope.isCurrent(lease)) return;
+      if (error instanceof ApiError && error.status === 404) loseSession(lease.sessionId);
+      else setUploadError(localizedError(error, t, t.errors.uploadFailed));
+    }
     finally { if (scope.isCurrent(lease)) setUploading(false); scope.finish(lease); }
   };
 
@@ -252,6 +286,10 @@ function App() {
       setBackendStatus('online');
     } catch (error) {
       if (!scope.isCurrent(lease)) return;
+      if (error instanceof ApiError && error.status === 404) {
+        loseSession(lease.sessionId);
+        return;
+      }
       setTurns(current => current.map(turn => turn.id === turnId ? {...turn, pending: false,
         error: localizedError(error, t, t.errors.analysisFailed)} : turn));
       setWorkflowProgress(current => current ? {...current, status: 'failed', node_statuses: {
@@ -340,6 +378,7 @@ function App() {
       </header>
 
       {storageWarning && <p role="alert">{t.errors.storageUnavailable}</p>}
+      {!session && uploadError && <p role="alert">{uploadError}</p>}
       {backendStatus === 'offline' && session && <button type="button" onClick={retrySession}>{t.session.retryRestore}</button>}
       <nav className="mobile-tabs" aria-label={t.nav.label}>
         <button
@@ -373,7 +412,7 @@ function App() {
           <DocumentsPanel
             session={session}
             uploading={uploading}
-            uploadError={uploadError}
+            uploadError={session ? uploadError : ''}
             onUpload={handleUpload}
             t={t}
           />

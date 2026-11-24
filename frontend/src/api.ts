@@ -2,9 +2,6 @@ import type { AskResponse, HealthResponse, SessionDetail, UploadResponse, Workfl
 import { object, parseAskResponse, parseSession, parseUpload } from './protocol';
 import { readWorkflowStream } from './sse';
 
-const DEFAULT_API_BASE_URL = import.meta.env?.DEV ? 'http://127.0.0.1:8000' : '';
-const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, '');
-
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) { super(message); this.status = status; }
@@ -21,7 +18,11 @@ async function responseError(response: Response): Promise<ApiError> {
 }
 async function request(path: string, init?: RequestInit): Promise<Response> {
   let response: Response;
-  try { response = await fetch(`${API_BASE_URL}${path}`, init); }
+  const headers = new Headers(init?.headers);
+  if (path === '/sessions' || path.startsWith('/sessions/')) {
+    headers.set('X-PDF-Agent-Client', 'browser');
+  }
+  try { response = await fetch(path, {...init, headers, credentials: 'same-origin', redirect: 'error'}); }
   catch (error) {
     if (init?.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw new DOMException('Request cancelled.', 'AbortError');
     throw new ApiError('Cannot reach the PDF Agent API.', 0);
@@ -42,7 +43,9 @@ export function checkHealth(signal?: AbortSignal): Promise<HealthResponse> {
 }
 export function createSession(signal?: AbortSignal): Promise<{session_id: string}> {
   return apiRequest('/sessions', value => {
-    if (!object(value) || typeof value.session_id !== 'string' || !value.session_id) throw new Error('Invalid session response.');
+    if (!object(value) || typeof value.session_id !== 'string' || !/^[a-f0-9]{32}$/.test(value.session_id)) {
+      throw new Error('Invalid session response.');
+    }
     return {session_id: value.session_id};
   }, {method: 'POST', signal});
 }

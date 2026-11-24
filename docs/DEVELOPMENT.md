@@ -79,21 +79,23 @@ model_output_repaired记录固定修复代码；model_output_validation_failed�
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
-显式 `--env-file` 在导入应用前加载设置，避免各模块导入时读取环境的时序差异。当前默认数据目录相对工作目录，因此应在仓库根目录启动。会话保存在 `app/data`；需要独立测试数据目录时，在启动前设置 `PDF_AGENT_DATA_DIR`。不要把日常开发连到生产数据目录。
+显式 `--env-file` 在导入应用前加载设置。请在仓库根目录启动，并使用已显式升级到当前 revision 的本地 PostgreSQL/pgvector。调试迁移使用独立测试数据库。
 
-终端二：
+终端二（使用浏览器信任、含本地访问主机名或 IP 的开发证书）：
 
-```text
+```powershell
 cd frontend
 npm ci
+$env:PDF_AGENT_DEV_TLS_CERT_PEM = Get-Content -Raw -LiteralPath 'C:/local-certs/localhost.pem'
+$env:PDF_AGENT_DEV_TLS_KEY_PEM = Get-Content -Raw -LiteralPath 'C:/local-certs/localhost-key.pem'
 npm run dev
 ```
 
-访问 `http://127.0.0.1:5173`；后端健康检查 `http://127.0.0.1:8000/health`，接口调试 `/docs`、契约 `/openapi.json`。调试普通会话和上传可使用 `/docs`；执行问答可能触发付费 API，须遵守 [AGENTS.md](../AGENTS.md) 的授权边界。
+访问证书覆盖的 `https://127.0.0.1:5173` 或 `https://localhost:5173`。Vite 把 `/health` 和 `/sessions` 转发给回环后端。可通过 `PDF_AGENT_DEV_BACKEND` 更换代理上游。开发私钥置于仓库外。直接用 FastAPI 提供构建站点时，可在回环监听并提供 Uvicorn 的 `--ssl-certfile` 和 `--ssl-keyfile`。应用的 Cookie 安全属性在开发与生产一致。
 
-- Vite 默认直连 `http://127.0.0.1:8000`，不是代理。更换地址可从 [frontend/.env.example](../frontend/.env.example) 创建本地 `.env` 后设置 `VITE_API_BASE_URL`；修改后重启 Vite。所有 `VITE_*` 都可能进入浏览器构建，不能存秘密。
-- 后端 `CORS_ORIGINS` 是逗号分隔的来源列表，默认允许 localhost/127.0.0.1 的 5173。它只控制浏览器跨域，不提供认证。
-- 同源构建：在 `frontend` 执行 `npm run build`，然后启动/重启后端访问 `/`。生产默认 API 基址为空；构建时若保留本地 `VITE_API_BASE_URL` 会把该地址写进产物，需先核对。
+- `SESSION_BROWSER_ORIGINS` 是浏览器会话允许的精确 HTTPS Origin 列表，默认为回环的 5173 和 8000。部署时配置实际公开 HTTPS 来源，保持前端和 API 同源，HTTPS 可由可信入口终止。`CORS_ORIGINS` 单独控制跨域响应，前端使用同源 Cookie 调用。
+- 浏览器会话请求发送 `X-PDF-Agent-Client: browser`。创建和写操作要求允许的 Origin。脚本通过 `POST /sessions` 和 `X-Session-Mode: bearer` 创建，不带 Origin。安全保存响应中的 `session_token`，对会话 API 发送 `Authorization: Bearer <token>`。创建响应同时提供 `expires_at`，凭据绝对有效期 24 小时。
+- 健康、OpenAPI 和文档可访问后端 `/health`、`/openapi.json` 和 `/docs`。历史记录及到期凭据不能仅凭 ID 恢复。数据库 TTL 仍由原保留配置控制。执行问答可能触发付费 API，须遵守 [AGENTS.md](../AGENTS.md) 的授权边界。
 - 调试 Graph 看 `agent/graph_agent.py` 和 `app/services/agent_service.py`；请求日志可按 request_id 关联。浏览器 Network 中检查 `/ask/stream` 的 progress/result，不要把它当作模型逐 Token 流。
 - 修改后端环境变量需重启；改进日志时只记录排障所需元数据，不输出完整提示词、PDF 或密钥。
 

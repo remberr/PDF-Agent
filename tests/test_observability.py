@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.session_access_fixtures import AUTH_HEADERS, HTTP_SESSION_ID, accept_test_owner
 
 from app.api.routes import router
 from app.services.agent_service import iter_pdf_agent_events
@@ -132,9 +133,9 @@ class StructuredLoggingTests(unittest.TestCase):
         test_app.include_router(router)
         test_app.add_middleware(RequestContextMiddleware)
 
-        with TestClient(test_app) as client:
+        with accept_test_owner(), TestClient(test_app, headers=AUTH_HEADERS) as client:
             response = client.post(
-                "/sessions/session-1/ask",
+                f"/sessions/{HTTP_SESSION_ID}/ask",
                 headers={"X-Request-ID": "client-request-1"},
                 json={"question": "What is the result?"},
             )

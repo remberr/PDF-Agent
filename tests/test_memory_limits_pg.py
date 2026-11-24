@@ -11,6 +11,7 @@ from app.db.schema import messages, sessions
 from app.services import postgres_store as store
 from tests.test_postgres_connection import local_test_settings
 from tests.test_error_privacy import make_app
+from tests.session_access_fixtures import create_bearer_session
 from utils import memory
 from utils.observability import observability_context
 
@@ -29,7 +30,7 @@ class MemoryHistoryIntegrationTests(unittest.TestCase):
     def setUp(self):
         p=patch.object(store,'get_engine',return_value=self.engine); p.start(); self.addCleanup(p.stop)
         p=patch.dict(os.environ,{'MEMORY_HISTORY_MAX_MESSAGES':'5','SESSION_RETENTION_ENABLED':'false'}); p.start(); self.addCleanup(p.stop)
-        self.sid=store.create_session(); self.addCleanup(lambda:store.delete_session(self.sid))
+        self.sid, self.headers = create_bearer_session(store); self.addCleanup(lambda:store.delete_session(self.sid))
         memory._memory_cache.clear()
         snapshot=store.get_session(self.sid)
         snapshot['messages'].extend({'role':'user','content':str(i),'unknown':{'keep':i}} for i in range(30))
@@ -41,7 +42,7 @@ class MemoryHistoryIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot['message_count'],30)
         self.assertEqual([m['content'] for m in snapshot['messages']],['25','26','27','28','29'])
         self.assertEqual(snapshot['messages'][-1]['unknown'],{'keep':29})
-        with TestClient(make_app()) as http:
+        with TestClient(make_app(), headers=self.headers) as http:
             self.assertEqual(http.get(f'/sessions/{self.sid}').json()['message_count'],30)
         with self.engine.connect() as c:
             self.assertEqual(c.scalar(select(func.count()).select_from(messages).where(messages.c.session_id==self.sid)),30)

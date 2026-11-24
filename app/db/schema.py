@@ -1,7 +1,7 @@
 """Relational and dense-vector metadata. Schema is installed only by Alembic."""
 from sqlalchemy import (MetaData, Table, Column, String, Text, Integer, BigInteger,
                         DateTime, ForeignKey, ForeignKeyConstraint, CheckConstraint,
-                        UniqueConstraint, Index)
+                        UniqueConstraint, Index, LargeBinary)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from pgvector.sqlalchemy import VECTOR
 
@@ -15,6 +15,16 @@ sessions = Table('sessions', metadata,
     CheckConstraint('document_count >= 0', name='session_pages_nonnegative'),
 )
 Index('ix_sessions_updated_at', sessions.c.updated_at)
+owner_credentials = Table('session_owner_credentials', metadata,
+    Column('session_id', String(32), ForeignKey('sessions.session_id', ondelete='CASCADE'), primary_key=True),
+    Column('digest', LargeBinary(32), nullable=False),
+    Column('mode', String(6), nullable=False),
+    Column('issued_at', DateTime(timezone=True), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=False),
+    CheckConstraint('octet_length(digest) = 32', name='owner_digest_length'),
+    CheckConstraint("mode IN ('cookie', 'bearer')", name='owner_mode'),
+    CheckConstraint("expires_at = issued_at + interval '24 hours'", name='owner_expiry'),
+)
 request_leases = Table('session_request_leases', metadata,
     Column('lease_id', UUID(as_uuid=True), primary_key=True),
     Column('session_id', String(32), ForeignKey('sessions.session_id', ondelete='CASCADE'), nullable=False),

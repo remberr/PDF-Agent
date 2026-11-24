@@ -1,7 +1,7 @@
 """Short transactional session/document/message operations; no filesystem cleanup."""
 import hashlib
+from hmac import compare_digest
 import os
-import re
 import time
 import math
 from datetime import datetime, timezone, timedelta
@@ -9,7 +9,8 @@ from uuid import uuid4
 
 from sqlalchemy import select, insert, update, delete, func
 from app.db.runtime import get_engine, verify_schema, dispose_engine
-from app.db.schema import sessions, messages, documents, chunks, request_leases
+from app.db.schema import sessions, messages, documents, chunks, request_leases, owner_credentials
+from app.services.session_credentials import OWNER_LIFETIME_SECONDS, SESSION_ID, OwnerCredential
 from utils.embeddings import PROFILE_ID, validate_vectors
 from utils.memory_limits import HistoryWindow, load_memory_limits
 
@@ -32,12 +33,50 @@ def init_session_store():
     verify_schema()
 
 
-def create_session():
+def create_session() -> str:
+    """Create an internal session without public access (offline tooling)."""
+    return _create_session()[0]
+
+
+def create_owned_session(owner: OwnerCredential) -> tuple[str, datetime]:
+    return _create_session(owner)
+
+
+def _create_session(owner: OwnerCredential | None = None) -> tuple[str, datetime]:
     sid = uuid4().hex
-    now = timestamp()
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=OWNER_LIFETIME_SECONDS)
     with get_engine().begin() as connection:
-        connection.execute(insert(sessions).values(session_id=sid, created_at=now, updated_at=now))
-    return sid
+        activity_at = timestamp()
+        connection.execute(insert(sessions).values(session_id=sid, created_at=activity_at, updated_at=activity_at))
+        if owner is not None:
+            connection.execute(insert(owner_credentials).values(
+                session_id=sid, digest=owner.digest, mode=owner.mode,
+                issued_at=now, expires_at=expires_at,
+            ))
+    return sid, expires_at
+
+
+def _owner_is_valid(connection, sid: str, owner: OwnerCredential) -> bool:
+    row = connection.execute(select(
+        owner_credentials.c.digest, owner_credentials.c.mode, owner_credentials.c.expires_at,
+    ).where(owner_credentials.c.session_id == sid)).first()
+    return bool(row and compare_digest(row.digest, owner.digest)
+                and row.mode == owner.mode and datetime.now(timezone.utc) < row.expires_at)
+
+
+def check_session_owner(sid: str, owner: OwnerCredential) -> bool:
+    """Read only credential metadata before accepting a request body."""
+    with get_engine().connect() as connection:
+        if not _owner_is_valid(connection, sid, owner):
+            return False
+        if not retention_enabled():
+            return True
+        updated_at = connection.scalar(select(sessions.c.updated_at).where(sessions.c.session_id == sid))
+        now = timestamp()
+        return updated_at is not None and (
+            updated_at > now - timedelta(seconds=SESSION_TTL_SECONDS) or _has_lease(connection, sid, now)
+        )
 
 
 def _has_lease(connection, sid, now):
@@ -87,17 +126,19 @@ def release_session_lease(sid: str, lease_id) -> None:
                                                          request_leases.c.session_id == sid))
 
 
-def get_session(sid):
-    if not isinstance(sid, str) or not re.fullmatch('[a-f0-9]{32}', sid):
+def get_session(sid, *, owner: OwnerCredential | None = None):
+    if not isinstance(sid, str) or not SESSION_ID.fullmatch(sid):
         return None
     limit = load_memory_limits().history_messages
     expired = False
     with get_engine().begin() as connection:
         row = connection.execute(select(sessions).where(sessions.c.session_id == sid).with_for_update()).mappings().first()
-        if row is None:
+        if row is None or (owner is not None and not _owner_is_valid(connection, sid, owner)):
             return None
         now = timestamp()
         if retention_enabled() and row['updated_at'].timestamp() <= now.timestamp() - SESSION_TTL_SECONDS and not _has_lease(connection, sid, now):
+            if owner is not None:
+                return None
             connection.execute(delete(sessions).where(sessions.c.session_id == sid))
             expired = True
         else:
@@ -172,8 +213,15 @@ def commit_document(sid, filename, page_count, items, vectors, *, size_bytes=Non
     return True
 
 
-def delete_session(sid):
+def delete_session(sid, *, owner: OwnerCredential | None = None) -> bool:
     with get_engine().begin() as connection:
+        if owner is not None:
+            try:
+                _locked_session(connection, sid)
+            except LookupError:
+                return False
+            if not _owner_is_valid(connection, sid, owner):
+                return False
         deleted = connection.execute(delete(sessions).where(sessions.c.session_id == sid)).rowcount > 0
     if deleted:
         from utils.memory import invalidate_memory

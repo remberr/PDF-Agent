@@ -6,6 +6,7 @@ from langchain_core.documents import Document
 from app.services.agent_service import ask_pdf_agent, iter_pdf_agent_events, stream_pdf_agent
 from tests.test_error_privacy import make_app, make_session, decode_result
 from fastapi.testclient import TestClient
+from tests.session_access_fixtures import AUTH_HEADERS, HTTP_SESSION_ID, accept_test_owner
 from utils.llm_client import LLMClientError
 from utils.llm_budget import RequestBudget, BudgetSettings
 
@@ -20,8 +21,8 @@ class ExecutionContractTests(unittest.TestCase):
         for streaming in (False, True):
             session = self.session()
             with self.subTest(streaming=streaming), patch('app.api.routes.get_session', return_value=session), \
-                    patch('app.services.agent_service.save_session'), TestClient(make_app()) as http:
-                response = http.post('/sessions/test/ask' + ('/stream' if streaming else ''), json={'question': 'sources'})
+                    patch('app.services.agent_service.save_session'), accept_test_owner(), TestClient(make_app(), headers=AUTH_HEADERS) as http:
+                response = http.post(f'/sessions/{HTTP_SESSION_ID}/ask' + ('/stream' if streaming else ''), json={'question': 'sources'})
             result = decode_result(response, streaming)
             self.assertEqual(result['execution']['status'], 'succeeded')
             self.assertEqual(result['execution']['persistence'], 'saved')
@@ -115,8 +116,8 @@ class ExecutionContractTests(unittest.TestCase):
         for streaming in (False, True):
             with self.subTest(streaming=streaming), patch('app.api.routes.get_session', return_value=self.session()), \
                     patch('app.services.agent_service.save_session', side_effect=OSError('private')) as save, \
-                    TestClient(make_app()) as http:
-                response = http.post('/sessions/test/ask' + ('/stream' if streaming else ''), json={'question': 'sources'})
+                    accept_test_owner(), TestClient(make_app(), headers=AUTH_HEADERS) as http:
+                response = http.post(f'/sessions/{HTTP_SESSION_ID}/ask' + ('/stream' if streaming else ''), json={'question': 'sources'})
             result = decode_result(response, streaming)
             self.assertEqual(result['execution']['persistence'], 'failed')
             self.assertEqual(result['execution']['status'], 'failed')

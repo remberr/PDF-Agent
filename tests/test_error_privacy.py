@@ -12,6 +12,7 @@ from langchain_core.documents import Document
 
 from agent.collaboration_agent import collaboration_agent
 from app.api.routes import router
+from tests.session_access_fixtures import AUTH_HEADERS, HTTP_SESSION_ID, accept_test_owner
 from utils.llm_client import LLMClientError, chat_with_deepseek
 from utils.observability import (
     JsonFormatter,
@@ -157,9 +158,9 @@ class ErrorPrivacyTests(unittest.TestCase):
                     with patch("app.api.routes.get_session", return_value=session), \
                             patch("app.services.agent_service.save_session"), \
                             patch("utils.llm_client.get_deepseek_client", return_value=client), \
-                            capture_json_logs() as logs, TestClient(make_app()) as http:
+                            capture_json_logs() as logs, accept_test_owner(), TestClient(make_app(), headers=AUTH_HEADERS) as http:
                         response = http.post(
-                            "/sessions/privacy-test-session/ask" + ("/stream" if streaming else ""),
+                            f"/sessions/{HTTP_SESSION_ID}/ask" + ("/stream" if streaming else ""),
                             headers={"X-Request-ID": "privacy-request"},
                             json={"question": "What is the conclusion?"},
                         )
@@ -203,9 +204,9 @@ class ErrorPrivacyTests(unittest.TestCase):
                 with patch("app.api.routes.get_session", return_value=session), \
                         patch("app.services.agent_service.get_pdf_agent_graph", return_value=graph), \
                         patch("app.services.agent_service.save_session"), \
-                        capture_json_logs() as logs, TestClient(make_app()) as http:
+                        capture_json_logs() as logs, accept_test_owner(), TestClient(make_app(), headers=AUTH_HEADERS) as http:
                     response = http.post(
-                        "/sessions/privacy-test-session/ask" + ("/stream" if streaming else ""),
+                        f"/sessions/{HTTP_SESSION_ID}/ask" + ("/stream" if streaming else ""),
                         headers={"X-Request-ID": "privacy-request"},
                         json={"question": "What is the conclusion?"},
                     )
@@ -230,11 +231,11 @@ class ErrorPrivacyTests(unittest.TestCase):
                         patch("app.services.pdf_service.parse_pdf_documents",
                               side_effect=ValueError(PRIVATE_ERROR)), \
                         capture_json_logs() as logs, \
-                        TestClient(make_app(), raise_server_exceptions=False) as http:
+                        accept_test_owner(), TestClient(make_app(), headers=AUTH_HEADERS, raise_server_exceptions=False) as http:
                     if failure == "storage":
                         get_session.side_effect = OSError(PRIVATE_ERROR)
                     response = http.post(
-                        "/sessions/privacy-test-session/pdfs",
+                        f"/sessions/{HTTP_SESSION_ID}/pdfs",
                         files={"files": ("sample.pdf", b"test parser input", "application/pdf")},
                         headers={"X-Request-ID": "privacy-request"},
                     )

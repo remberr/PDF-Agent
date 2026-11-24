@@ -17,6 +17,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from app.api.routes import router
+from tests.session_access_fixtures import AUTH_HEADERS, HTTP_SESSION_ID, accept_test_owner
 from app.services import pdf_service
 
 
@@ -46,7 +47,8 @@ class RequestValidationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         app = FastAPI()
         app.include_router(router)
-        self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test')
+        self.enterContext(accept_test_owner())
+        self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test', headers=AUTH_HEADERS)
         self.addAsyncCleanup(self.http.aclose)
 
     async def test_invalid_questions_rejected_before_session_lookup(self):
@@ -54,7 +56,7 @@ class RequestValidationTests(unittest.IsolatedAsyncioTestCase):
             for question in ('   \n\t', 'x' * 100001):
                 with self.subTest(suffix=suffix, size=len(question)), \
                         patch('app.api.routes.get_session', return_value=None) as lookup:
-                    response = await self.http.post(f'/sessions/test-session/{suffix}',
+                    response = await self.http.post(f'/sessions/{HTTP_SESSION_ID}/{suffix}',
                                                     json={'question': question})
                     self.assertEqual(response.status_code, 422)
                     lookup.assert_not_called()
@@ -62,14 +64,14 @@ class RequestValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_file_count_rejected_before_indexing(self):
         with patch('app.api.routes.get_session', return_value=session()), \
                 patch('app.api.routes.load_pdf_into_session', return_value=True) as index:
-            response = await self.http.post('/sessions/test-session/pdfs', files=[
+            response = await self.http.post(f'/sessions/{HTTP_SESSION_ID}/pdfs', files=[
                 ('files', (f'{i}.pdf', b'pdf', 'application/pdf')) for i in range(101)])
         self.assertEqual(response.status_code, 413)
         index.assert_not_called()
 
     async def test_missing_filename_is_safe_client_error(self):
         with patch('app.api.routes.get_session', return_value=session()):
-            response = await self.http.post('/sessions/test-session/pdfs',
+            response = await self.http.post(f'/sessions/{HTTP_SESSION_ID}/pdfs',
                                             files={'files': ('', b'pdf', 'application/pdf')})
         self.assertIn(response.status_code, (400, 422))
 
@@ -79,13 +81,13 @@ class RequestValidationTests(unittest.IsolatedAsyncioTestCase):
         with patch('app.schemas.requests.get_input_limits', return_value=InputLimits(max_question_chars=4)):
             self.assertEqual(AskRequest(question='  test\n').question, 'test')
             for suffix in ('ask', 'ask/stream'):
-                response = await self.http.post(f'/sessions/test-session/{suffix}', json={'question': '12345'})
+                response = await self.http.post(f'/sessions/{HTTP_SESSION_ID}/{suffix}', json={'question': '12345'})
                 self.assertEqual(response.status_code, 422)
 
     async def test_invalid_later_filename_does_not_index_first_file(self):
         with patch('app.api.routes.get_session', return_value=session()), \
                 patch('app.api.routes.load_pdf_into_session', return_value=True) as index:
-            response = await self.http.post('/sessions/test-session/pdfs', files=[
+            response = await self.http.post(f'/sessions/{HTTP_SESSION_ID}/pdfs', files=[
                 ('files', ('valid.pdf', pdf_bytes(), 'application/pdf')),
                 ('files', ('bad.txt', b'invalid', 'text/plain'))])
         self.assertEqual(response.status_code, 400)
@@ -93,13 +95,13 @@ class RequestValidationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_session_lookup_does_not_block_health(self):
         started, release = threading.Event(), threading.Event()
-        def slow_lookup(_sid):
+        def slow_lookup(_sid, *, owner):
             started.set()
             release.wait(3)
             return session()
         with patch('app.api.routes.get_session', side_effect=slow_lookup), \
                 patch('app.api.routes.load_pdf_into_session', return_value=True):
-            upload = asyncio.create_task(self.http.post('/sessions/test-session/pdfs',
+            upload = asyncio.create_task(self.http.post(f'/sessions/{HTTP_SESSION_ID}/pdfs',
                 files={'files': ('test.pdf', pdf_bytes(), 'application/pdf')}))
             try:
                 self.assertTrue(await asyncio.to_thread(started.wait, 2))
@@ -271,7 +273,7 @@ class BodyLimitTests(unittest.IsolatedAsyncioTestCase):
         expected_origin = allowed[0] if allowed else None
         if origin == '*':
             origin = 'http://localhost:5173'
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as http:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test', headers=AUTH_HEADERS) as http:
             with patch('app.api.routes.get_session') as lookup:
                 response = await http.post('/sessions/test/pdfs', content=b'', headers={
                     'Origin': origin,
@@ -289,10 +291,10 @@ class BodyLimitTests(unittest.IsolatedAsyncioTestCase):
         app = FastAPI()
         app.include_router(router)
         app.add_middleware(InputLimitsMiddleware, limits=limits)
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as http:
-            with patch('app.schemas.requests.get_input_limits', return_value=limits), \
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test', headers=AUTH_HEADERS) as http:
+            with accept_test_owner(), patch('app.schemas.requests.get_input_limits', return_value=limits), \
                     patch('app.api.routes.get_session', return_value=None) as lookup:
-                response = await http.post('/sessions/test/ask',
+                response = await http.post(f'/sessions/{HTTP_SESSION_ID}/ask',
                     content=json.dumps({'question': '\U0001f600' * 1000}, ensure_ascii=True),
                     headers={'Content-Type': 'application/json'})
             self.assertEqual(response.status_code, 404, 'Valid question must reach normal session validation')
@@ -399,10 +401,10 @@ class BodyLimitTests(unittest.IsolatedAsyncioTestCase):
         async def body():
             yield b'--b\r\nContent-Disposition: form-data; name="files"; filename="a.pdf"\r\n\r\npdf'
             yield b'x' * limits.max_upload_body_bytes
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as http:
-            with patch('starlette.formparsers.SpooledTemporaryFile', side_effect=tracked_file), \
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test', headers=AUTH_HEADERS) as http:
+            with accept_test_owner(), patch('starlette.formparsers.SpooledTemporaryFile', side_effect=tracked_file), \
                     patch('app.api.routes.get_session') as lookup:
-                response = await http.post('/sessions/test/pdfs', content=body(),
+                response = await http.post(f'/sessions/{HTTP_SESSION_ID}/pdfs', content=body(),
                                            headers={'Content-Type': 'multipart/form-data; boundary=b'})
             self.assertEqual(response.status_code, 413)
             lookup.assert_not_called()

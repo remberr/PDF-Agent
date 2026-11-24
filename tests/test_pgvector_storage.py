@@ -12,9 +12,10 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.engine import create_database_engine
 from app.db.runtime import verify_schema
-from app.db.schema import chunks, documents, sessions
+from app.db.schema import chunks, documents, sessions, owner_credentials
 from app.services import postgres_store as store
 from tests.test_postgres_connection import local_test_settings
+from tests.session_access_fixtures import BROWSER_HEADERS, create_bearer_session
 from utils.pgvector_store import SessionVectorStore
 
 
@@ -210,29 +211,125 @@ class PgvectorStorageTests(unittest.TestCase):
         from fastapi.testclient import TestClient
         from app.main import app
         with patch('app.db.runtime.get_engine', return_value=self.engine), patch.dict(os.environ, {'SESSION_RETENTION_ENABLED': 'false'}):
-            with TestClient(app) as client:
+            with TestClient(app, base_url='https://localhost:5173', headers=BROWSER_HEADERS) as client:
                 response = client.post('/sessions')
                 self.assertEqual(response.status_code, 200)
                 sid = response.json()['session_id']
+                self.assertEqual(response.json(), {'session_id': sid})
+                cookie = response.headers['set-cookie']
+                self.assertIn(f'Path=/sessions/{sid}', cookie)
+                for attribute in ('Max-Age=86400', 'Secure', 'HttpOnly', 'SameSite=strict'):
+                    self.assertIn(attribute, cookie)
+                self.assertNotIn('Domain=', cookie)
                 self.ids.append(sid)
                 details = client.get('/sessions/' + sid)
                 self.assertEqual(details.json(), {'session_id': sid, 'loaded_pdfs': [],
                     'message_count': 0, 'has_vectorstore': False, 'total_documents': 0})
                 self.assertEqual(client.post('/sessions/' + sid + '/ask', json={'question':'What is this?'}).status_code, 400)
-                self.assertEqual(client.delete('/sessions/' + sid).status_code, 204)
+                response = client.delete('/sessions/' + sid)
+                self.assertEqual(response.status_code, 204)
+                self.assertIn('Max-Age=0', response.headers['set-cookie'])
                 self.assertEqual(client.get('/sessions/' + sid).status_code, 404)
+
+    def test_bearer_access_is_isolated_and_does_not_touch_denied_rows(self):
+        import base64
+        import hashlib
+        from datetime import timedelta
+        from fastapi.testclient import TestClient
+        from tests.test_error_privacy import make_app
+
+        legacy = self.session()
+        with TestClient(make_app()) as client:
+            created = client.post('/sessions', headers={'X-Session-Mode': 'bearer'})
+            self.assertEqual(created.status_code, 200)
+            self.assertNotIn('set-cookie', created.headers)
+            session = created.json()
+            sid, token = session['session_id'], session['session_token']
+            self.ids.append(sid)
+            other, wrong = create_bearer_session(store)
+            self.ids.append(other)
+            headers = {'Authorization': f'Bearer {token}'}
+            with self.engine.connect() as connection:
+                row = connection.execute(select(owner_credentials).where(
+                    owner_credentials.c.session_id == sid)).one()
+                self.assertEqual(row.digest, hashlib.sha256(base64.urlsafe_b64decode(token + '=')).digest())
+                self.assertEqual(row.expires_at - row.issued_at, timedelta(hours=24))
+                updated = connection.scalar(select(sessions.c.updated_at).where(sessions.c.session_id == sid))
+            for method, suffix in (
+                ('GET', ''), ('DELETE', ''), ('POST', '/pdfs'),
+                ('POST', '/ask'), ('POST', '/ask/stream'),
+            ):
+                result = client.request(method, f'/sessions/{sid}{suffix}', headers=wrong,
+                                        content=b'private body')
+                self.assertEqual((result.status_code, result.json()), (404, {'detail': 'Session not found.'}))
+            for blocked in (legacy, 'f' * 32, other):
+                self.assertEqual(client.get(f'/sessions/{blocked}', headers=headers).status_code, 404)
+            with self.engine.connect() as connection:
+                self.assertEqual(connection.scalar(select(sessions.c.updated_at).where(
+                    sessions.c.session_id == sid)), updated)
+            self.assertEqual(client.get(f'/sessions/{sid}', headers=headers).status_code, 200)
+            with self.engine.begin() as connection:
+                connection.execute(update(owner_credentials).where(owner_credentials.c.session_id == sid)
+                                   .values(issued_at=row.issued_at - timedelta(hours=25),
+                                           expires_at=row.expires_at - timedelta(hours=25)))
+            self.assertEqual(client.get(f'/sessions/{sid}', headers=headers).status_code, 404)
+            self.assertEqual(client.delete(f'/sessions/{sid}', headers=headers).status_code, 404)
+        self.assertIsNotNone(store.get_session(sid))
+
+    def test_cookie_paths_isolate_sessions_and_origin_applies_to_every_mutation(self):
+        from fastapi.testclient import TestClient
+        from tests.test_error_privacy import make_app
+
+        with TestClient(make_app(), base_url='https://localhost:5173') as client:
+            first, second = [client.post('/sessions', headers=BROWSER_HEADERS).json()['session_id']
+                             for _ in range(2)]
+            self.ids.extend((first, second))
+            for sid in (first, second):
+                self.assertEqual(client.get(f'/sessions/{sid}', headers=BROWSER_HEADERS).status_code, 200)
+            for method, suffix in (('DELETE', ''), ('POST', '/pdfs'), ('POST', '/ask'), ('POST', '/ask/stream')):
+                for origin in ('https://evil.invalid', 'null', ''):
+                    headers = {**BROWSER_HEADERS, 'Origin': origin} if origin else {'X-PDF-Agent-Client': 'browser'}
+                    self.assertEqual(client.request(method, f'/sessions/{first}{suffix}',
+                                                    headers=headers, content=b'{').status_code, 403)
+            self.assertEqual(client.delete(f'/sessions/{first}', headers=BROWSER_HEADERS).status_code, 204)
+            self.assertEqual(client.get(f'/sessions/{first}', headers=BROWSER_HEADERS).status_code, 404)
+            self.assertEqual(client.get(f'/sessions/{second}', headers=BROWSER_HEADERS).status_code, 200)
+            with self.engine.connect() as connection:
+                self.assertIsNone(connection.scalar(select(owner_credentials.c.session_id).where(
+                    owner_credentials.c.session_id == first)))
+
+    def test_owner_access_rechecks_under_transaction_after_concurrent_delete(self):
+        from fastapi.testclient import TestClient
+        from tests.test_error_privacy import make_app
+
+        sid, headers = create_bearer_session(store)
+        self.ids.append(sid)
+
+        def delete_after_check(session_id, owner):
+            self.assertTrue(store.check_session_owner(session_id, owner))
+            self.assertTrue(store.delete_session(session_id))
+            return True
+
+        with TestClient(make_app()) as client, patch(
+            'app.api.session_access.check_session_owner', side_effect=delete_after_check
+        ), patch('app.api.routes.stream_pdf_agent') as generate:
+            response = client.post(f'/sessions/{sid}/ask/stream', headers=headers, json={'question': 'source'})
+            self.assertEqual(response.status_code, 404)
+            generate.assert_not_called()
+        self.assertIsNone(store.get_session(sid))
 
     def test_source_agent_json_and_sse_use_pg_citations_without_llm(self):
         from fastapi.testclient import TestClient
         from app.main import app
-        sid = self.session()
+        sid, headers = create_bearer_session(store)
+        self.ids.append(sid)
         self.document(sid)
         with patch('app.db.runtime.get_engine', return_value=self.engine), \
              patch('utils.pgvector_store.get_engine', return_value=self.engine), \
              patch('utils.pgvector_store.get_bge_embeddings', return_value=SyntheticEmbeddings()), \
              patch('utils.llm_client.get_deepseek_client') as llm, \
              patch.dict(os.environ, {'SESSION_RETENTION_ENABLED': 'false'}):
-            with TestClient(app) as client:
+            with TestClient(app, headers=headers) as client:
                 response = client.post('/sessions/' + sid + '/ask', json={'question': 'Show the sources.'})
                 self.assertEqual(response.status_code, 200)
                 self.assertIn('same.pdf', response.text)
@@ -290,7 +387,7 @@ class PgvectorStorageTests(unittest.TestCase):
                 config.attributes['connection'] = connection
                 # Public alembic_version must not be mistaken for this test's revision.
                 connection.exec_driver_sql('CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)')
-                command.upgrade(config, '0001_relational')
+                command.upgrade(config, '0003_request_leases')
                 sid = uuid4().hex
                 connection.execute(sessions.insert().values(session_id=sid, document_count=2,
                     created_at=store.timestamp(1000), updated_at=store.timestamp(1001)))
@@ -299,7 +396,8 @@ class PgvectorStorageTests(unittest.TestCase):
                 row = connection.execute(select(sessions).where(sessions.c.session_id == sid)).mappings().one()
                 self.assertEqual(row['document_count'], 2)
                 self.assertEqual(int(row['created_at'].timestamp()), 1000)
-                self.assertEqual(connection.scalar(text('SELECT version_num FROM alembic_version')), '0003_request_leases')
+                self.assertIsNone(connection.scalar(select(owner_credentials.c.session_id)))
+                self.assertEqual(connection.scalar(text('SELECT version_num FROM alembic_version')), '0004_session_credentials')
             finally:
                 transaction.rollback()
 

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel
@@ -10,6 +11,8 @@ class HealthResponse(BaseModel):
 
 class SessionResponse(BaseModel):
     session_id: str
+    session_token: str | None = None
+    expires_at: datetime | None = None
 
 
 class SessionDetailResponse(BaseModel):

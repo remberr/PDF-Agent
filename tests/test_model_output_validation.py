@@ -247,6 +247,7 @@ class BudgetAndWorkflowTests(unittest.TestCase):
 
     def test_invalid_collaboration_keeps_json_and_sse_contract_without_raw_injection(self):
         from fastapi.testclient import TestClient
+        from tests.session_access_fixtures import AUTH_HEADERS, HTTP_SESSION_ID, accept_test_owner
         from langchain_core.documents import Document
         from evaluation.runner import StaticVectorStore
         for streaming in (False, True):
@@ -261,8 +262,8 @@ class BudgetAndWorkflowTests(unittest.TestCase):
             client.chat.completions.create.side_effect = completion
             with patch('utils.llm_client.get_deepseek_client', return_value=client), \
                     patch('app.api.routes.get_session', return_value=session), \
-                    patch('app.services.agent_service.save_session'), TestClient(make_app()) as http:
-                answer = http.post('/sessions/test/ask' + ('/stream' if streaming else ''),
+                    patch('app.services.agent_service.save_session'), accept_test_owner(), TestClient(make_app(), headers=AUTH_HEADERS) as http:
+                answer = http.post(f'/sessions/{HTTP_SESSION_ID}/ask' + ('/stream' if streaming else ''),
                                    json={'question': 'Compare the PDFs and cite sources.'})
             self.assertEqual(answer.status_code, 200)
             result = decode_result(answer, streaming)

@@ -15,6 +15,7 @@ from app.db.schema import chunks, documents
 from app.input_limits import InputLimits, InputLimitsMiddleware
 from app.services import postgres_store as store
 from tests.test_input_limits import pdf_bytes
+from tests.session_access_fixtures import create_bearer_session
 from tests.test_pgvector_storage import SyntheticEmbeddings
 from tests.test_postgres_connection import local_test_settings
 from utils.observability import RequestContextMiddleware
@@ -38,13 +39,13 @@ class LimitedUploadIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.patch = patch.object(store, 'get_engine', return_value=self.engine)
         self.patch.start()
         self.addCleanup(self.patch.stop)
-        self.sid = store.create_session()
+        self.sid, headers = create_bearer_session(store)
         self.addCleanup(lambda: store.delete_session(self.sid))
         app = FastAPI()
         app.include_router(router)
         app.add_middleware(InputLimitsMiddleware)
         app.add_middleware(RequestContextMiddleware)
-        self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test')
+        self.http = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test', headers=headers)
         self.addAsyncCleanup(self.http.aclose)
         self.addCleanup(lambda: self.assertEqual(self.engine.pool.checkedout(), 0))
 

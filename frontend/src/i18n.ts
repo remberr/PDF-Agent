@@ -96,6 +96,9 @@ export interface Translation {
     invalidResponse: string;
     streamInterrupted: string;
     storageUnavailable: string;
+    sessionUnavailable: string;
+    cookieUnavailable: string;
+    previousDeletionUnconfirmed: string;
     executionUnknown: string;
     generatedNotSaved: string;
     degraded: string;
@@ -229,6 +232,9 @@ export const translations: Record<Language, Translation> = {
       invalidResponse: "The server response was invalid. The request was not repeated.",
       streamInterrupted: "The stream ended without a complete result. The request was not repeated.",
       storageUnavailable: "Browser storage is unavailable; this conversation may not survive a reload.",
+      sessionUnavailable: "This session is unavailable or expired. Start a new session to continue.",
+      cookieUnavailable: "A session could not be opened. Use the HTTPS app and allow session cookies.",
+      previousDeletionUnconfirmed: "The new session is open. Deletion of the previous session could not be confirmed.",
       executionUnknown: "Execution status is unavailable for this older result.",
       generatedNotSaved: "The response could not be confirmed as saved. No generation was repeated.",
       degraded: "This response used a fallback or contains incomplete agent results.",
@@ -360,6 +366,9 @@ export const translations: Record<Language, Translation> = {
       invalidResponse: "服务器响应格式无效，未自动重复请求。",
       streamInterrupted: "连接已结束，但未收到完整结果；未自动重复请求。",
       storageUnavailable: "浏览器存储不可用，刷新后可能无法恢复本地对话。",
+      sessionUnavailable: "此会话不可用或已过期。请新建会话以继续。",
+      cookieUnavailable: "无法打开会话。请使用 HTTPS 访问应用并允许会话 Cookie。",
+      previousDeletionUnconfirmed: "已打开新会话。上一个会话是否已删除无法确认。",
       executionUnknown: "旧结果没有可确认的执行状态。",
       generatedNotSaved: "无法确认回答已保存，未重新调用模型。",
       degraded: "本次回答发生回退或部分分析未完成。",

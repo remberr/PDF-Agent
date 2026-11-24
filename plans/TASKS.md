@@ -1,6 +1,6 @@
 # 改造任务清单
 
-更新时间：2026-11-24（Asia/Shanghai，T04 → T02b 本地验收）。项目任务状态的唯一事实来源；长期方向与里程碑见 [ROADMAP.md](ROADMAP.md)，当前实现见 [ARCHITECTURE.md](../docs/ARCHITECTURE.md)。需求分级、自动维护门禁及确认边界统一见 [AGENTS.md](../AGENTS.md#连续任务执行模式)。
+更新时间：2026-11-24（Asia/Shanghai，工程成熟化阶段最终收尾）。项目任务状态的唯一事实来源；长期方向与里程碑见 [ROADMAP.md](ROADMAP.md)，当前实现见 [ARCHITECTURE.md](../docs/ARCHITECTURE.md)。需求分级、自动维护门禁及确认边界统一见 [AGENTS.md](../AGENTS.md#连续任务执行模式)。
 
 ## 当前入口（2026-11-24）
 
@@ -13,6 +13,24 @@
 
 <a id="current-execution"></a>
 ## 当前执行队列与阶段验收（2026-11-24）
+
+- 收尾基线：`cad5d6c`，启动时 main 和暂存区干净。GitHub `origin/main` 只读查询为 `370bb47856f7e4518f789e4cc95274133db9bd53`，本地领先 8 项提交。
+- 已授权范围：核对并同步文档、清理已确认无用的本轮临时文件、本地回归和 Docker 镜像验收、隔离 PG 迁移及独立收尾提交。通过全部验收、待推送历史检查及远程触发核查后才可正常推送。未授权生产部署、历史库升级、生产迁移或付费模型。T08、T10 和其他待办不启动。
+
+| 执行项 | 当前状态 | 验收和依赖 |
+| --- | --- | --- |
+| 阶段收尾与验收（沿用原条目，不新增开发编号） | 已完成（DONE） | 实现、提交与历史证据复核，双语 README 和维护文档同步，主机与重建镜像均通过本地验收。收尾独立本地提交包含本记录。 |
+| GitHub 发布 | 阻塞（BLOCKED） | 已确认仓库存在启用的 `push` Webhook，目标为 Streamlit 社区云。Render 服务自动部署已关闭，Blueprint 级同步未核实。暂停推送。 |
+
+- 发布核查：用 Git 已保存的认证完成 GitHub 只读查询。默认分支为 `main`，活跃工作流只有 CI。Webhook 列表中有一个启用的 `push` 订阅，目标主机为 `share.streamlit.io`，故自动更新风险未解除。未调用 Hook 或修改设置。经用户确认工作区后，Render 实际 `pdf-agent` 服务的 `main` 自动部署为 `off`，无 pre-deploy 命令。服务读取结果缺少 Blueprint 标识，Dashboard 连接超时，Blueprint 级同步仍未核实。已核对推送范围无 `render.yaml` 变更。解除条件为核实或经单独授权处理触发设置，再复核远程及发布验收。
+- 镜像重建：用 `cad5d6c` 的 Git 归档构建。直接 Docker Hub 和内置解析器重试都遇到鉴权连接超时。临时构建参数使用 Google 公共缓存，Dockerfile 前端、Node、Python 的 linux/amd64 摘要逐一与 Docker Hub 核对一致。原 Dockerfile 完成依赖安装、前端构建和固定 BGE-M3 缓存，镜像 `pdf-agent:final-cad5d6c`，ID `sha256:f3ac0f70d37a6b838cab509566ec4aa24719f4b1b7e28a8b5f8d4c00f2ec6b30`。仓库 Dockerfile 和全局设置未改。缓存运行层的备用冒烟另行通过，最终验收以重新构建的镜像为准。收尾提交只有文档差异，运行源码与该镜像相同。
+- 本阶段提交归属：本地存储迁移及恢复基线（T05、T15a–f、T16a–f）见 `cf75fa3` 和既有验收记录，异常最少披露 T02a 见 `39ea80c`。待发布的 8 个提交依次为 `f348fa4`（T01/T03/T09a）、`6cf2e0c`（T06）、`8f1155f`（T07）、`c70912a`（T05a）、`64d8acc`（T09b）、`bce5b4e`（协作规范）、`d9a7a53`（T04）和 `cad5d6c`（T02b）。已核对代码入口、公开契约、历史证据及未完成的任务边界。
+- 本轮主机验收：Python 3.11 的默认离线全量 `python -B -m unittest discover -s tests -t . -v` 共 245 项，200 通过、45 跳过。开启隔离 PostgreSQL/pgvector 和旧存储恢复 opt-in 后共 245 项，242 通过、3 跳过（真实 PDF 及两个付费 opt-in）。初次用内部网络发布端口导致连接超时，改用新的仅回环临时库后通过。前端 `npm test` 20/20，`npm run build` 通过。Routing 9/9、受控 Source 1/1，均零 LLM。
+- 本轮镜像验收：在无外网的内部 Docker 网络和新 PG17/pgvector 数据库中显式 `python -m alembic upgrade head`，数据库 revision 确认为 `0004_session_credentials`。应用以 UID 10001 启动，Docker 健康检查和首页通过。实测 Cookie 属性和 Origin、Bearer、跨会话拒绝、合成 PDF 上传和真实 BGE-M3 编码、Source JSON/SSE 引用和保存。重启后凭据、PDF、已保存的四条消息和向量检索可用。全程零 LLM。HTTP 日志扫描未见合成文件名、正文或原始访问记录。镜像中未见 `.env`、私有 PDF、数据库或测试产物。
+- Git 与清理：逐提交检查待发布历史中的变更路径、Git blob、提交说明及收尾差异。一个命中经核实是回环测试库的编码密码夹具。未发现真实凭据、私有 PDF、数据库或测试产物。CI 引用的 Action 标签可解析，远端旧 `370bb47` 的 CI 为成功，本轮因未推送而无新运行。停止并清理本轮测试容器、网络和备用镜像，删除本轮临时构建上下文，保留最终镜像及已忽略的本地验收日志。历史数据、有效测试和恢复制品未清理。
+- 收尾与风险：本轮仅改动双语 README、开发和架构说明、TASKS 与 ROADMAP。真实 PDF 语义验收、付费生成/Judge、公开 HTTPS 网关日志、生产备份与迁移仍未执行。新解析依赖产生 BGE 方法弃用提示，镜像通过本地验收，依赖锁定留给 T11。发布继续阻塞，须先处理或排除 Streamlit Webhook 影响并核实 Blueprint 同步，再核对远程分支与 CI。T10/T08、T11/T12、T15e2/T15g 等任务保留原状态，阶段到此停止。
+
+## T04 → T02b 执行队列与阶段验收（2026-11-24，历史记录）
 
 - 设计基线：`bce5b4e28ec3be5b5bd5ac5a6627171ff2737d65`，`main` 相对 `origin/main` 领先 6 个本地提交，开始时工作区与暂存区干净。恢复 AGENTS、TASKS、ROADMAP 与架构、开发、测试上下文，核对 HTTP/POST SSE、前端存储、PostgreSQL 生命周期和日志封装。
 - 实施基线：HEAD 同上，main 领先 6 提交，现有工作区仅包含上轮未提交的 TASKS 设计，暂存区干净。用户批准方案 A，按 T04 → T02b 连续实施和验收，各自独立本地提交。

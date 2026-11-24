@@ -2,24 +2,24 @@
 
 [English](README.md) · **简体中文**
 
-上传一份或多份 PDF，即可针对文档提问、比较内容，或从回答追溯到文件和页码。PDF Agent 由 React 界面、FastAPI 服务和 LangGraph 工作流组成，在 PostgreSQL 中保存对话和文档数据，使用 pgvector 和 BGE-M3 检索相关段落。
+PDF Agent 提供 React 和 FastAPI 工作台，可针对 PDF 提问并追溯引用的文件和页码。LangGraph 多 Agent 工作流使用 BGE-M3 编码，在 PostgreSQL 中通过 pgvector 检索。本文介绍的工程成熟化能力已在本地验收，Render 和生产数据库尚未升级至这一版本。
 
 ## 可以做什么
 
-- 在会话中上传 PDF，进行问答、摘要、关键词提取、跨文档比较和来源查询。
-- 通过 SSE 查看选中的 Agent、执行进度、耗时及最终引用。
-- 结合最近的消息和历史摘要继续对话。互不依赖的 Agent 可以并行执行；工作流最多增加一轮修订。
-- 查看 Token 用量、提示词缓存统计和费用估算。中文界面使用人民币定价，英文界面使用美元定价，两者独立计算。
+- **多 Agent 文档分析。** 在同一会话中上传多份 PDF，进行问答、摘要、关键词、跨文档比较和来源查询。Planner 选择可并行执行的专项 Agent，Collaboration 可在最终复核前触发一轮补充修订。Planner 和 Collaboration 输出经过结构校验，非法输出走确定性回退。
+- **执行进度和终态。** POST SSE 提供进度、引用和最终结果。JSON 与 SSE 都区分成功、降级、失败、取消以及结果是否保存。流中断时可识别缺失终态，避免自动重发生成请求。
+- **会话 Memory 与请求预算。** 在受限窗口内使用近期消息，必要时摘要较早的对话。摘要缓存按会话和上下文隔离。一次请求共享调用次数、Token 预留、预估美元费用和时间预算。界面展示 Token 用量、缓存统计可用性和独立估算的人民币或美元费用。
+- **匿名会话。** 浏览器用安全的 HttpOnly Cookie，脚本可请求 Bearer 令牌。凭据仅用于对应会话。刷新可恢复文档和服务端上下文，页面可见聊天回合保存在内存中。
 
 ## 工作流程
 
 ```text
-PDF → PyPDFLoader → 文本切块 → BGE-M3 → PostgreSQL / pgvector
-问题 → LangGraph 规划 → 当前会话检索与专项 Agent → 回答和引用
-React ↔ FastAPI → 会话历史与 SSE 进度
+PDF → PyPDFLoader → 文本切块 → BGE-M3 → PostgreSQL + pgvector
+问题 → Planner → 当前会话检索与专项 Agent → Collaboration / Reviewer
+React ← FastAPI JSON 或 POST SSE ← 回答、引用和执行终态
 ```
 
-检索范围限定在当前会话。PostgreSQL 保存会话、消息、文档元数据和向量；Alembic 管理数据库结构。运行时检索不依赖 FAISS。
+Alembic 管理会话、消息、文档元数据、文本片段、向量、凭据和在途请求租约。上传时文档和片段在同一事务中写入。SQLite 和 FAISS 用于离线迁移与恢复工具。
 
 ## 用 Docker 本地运行
 
@@ -31,7 +31,7 @@ DOCKER_DATABASE_URL=postgresql+psycopg://pdf_agent:<URL编码后的密码>@db:54
 DEEPSEEK_API_KEY=<仅查询来源时可留空>
 ```
 
-需要生成回答时填写有效的 DeepSeek API Key；只走来源查询时可留空。在新的本地数据卷上执行：
+生成回答需要 DeepSeek API Key。只做来源查询时，将 `DEEPSEEK_API_KEY=` 留空。验收流程会在 API 容器显式设置 `PDF_AGENT_DISABLE_LLM_API=1`。在新的本地数据卷上执行：
 
 ```sh
 docker compose -f compose.vector.yaml up -d --wait db
@@ -54,17 +54,18 @@ docker compose -f compose.vector.yaml --profile app up -d --build --wait
 | POST | `/sessions/{session_id}/ask` | 获取回答和引用 |
 | POST | `/sessions/{session_id}/ask/stream` | 流式接收工作流事件与最终结果 |
 
-先上传 PDF，再向问答接口提交 JSON，例如 `{"question":"Show the sources."}`。
+脚本创建会话时发送 `X-Session-Mode: bearer`，从响应中保存一次性返回的 `session_token`，后续会话请求发送 `Authorization: Bearer <token>`。凭据 24 小时到期。先上传 PDF，再向问答接口提交 JSON，例如 `{"question":"Show the sources."}`。浏览器的 Cookie 流程使用开发指南中的同源 HTTPS 配置。
 
 ## 测试与评估
 
 ```sh
 python -m unittest discover -s tests -t . -v
 npm --prefix frontend test
+npm --prefix frontend run build
 python -m evaluation.runner --mode routing
 ```
 
-同一请求共享LLM调用、Token预留、USD费用预估和截止预算，配置及限制见[开发文档](docs/DEVELOPMENT.md#llm-budgets)。SDK自动重试关闭，应用重试默认零次。CI和默认单元测试禁止供应商网络访问；live/real-pdf生成及Judge要求显式`--allow-paid-api`，routing始终不调用模型。预留不是实际账单，取消不能撤回已发出的请求。
+请求限额与重试行为见[预算配置](docs/DEVELOPMENT.md#llm-budgets)。CI 和默认单元测试关闭供应商调用。live 或 real-pdf 生成和 Judge 需要显式 `--allow-paid-api`。Routing 与仅 Source 检查可零 LLM 运行。预留量用于估算，取消无法撤回已发到供应商的请求。
 
 PostgreSQL 集成测试、离线恢复和真实 PDF 评估见[测试指南](docs/TESTING.md)。请使用独立测试库，并将 PDF 和生成的报告留在 Git 忽略目录。只做本地检索时，将 `DATABASE_URL` 指向已迁移的测试库，然后运行：
 
@@ -72,13 +73,13 @@ PostgreSQL 集成测试、离线恢复和真实 PDF 评估见[测试指南](docs
 python -m evaluation.runner --mode real-pdf --pdf-dir /path/to/pdfs --retrieval-only --output .evaluation-local/retrieval.json
 ```
 
-本地验收覆盖真实 PDF 上传、BGE-M3 向量写入、来源 Agent、SSE、重启持久化、TTL 清理及离线恢复。三份 PDF 的 30 条检索用例校验了 90 条证据引文，平均预期页召回率为 60.7%。该指标只衡量检索覆盖，不能代表回答质量。本地迁移验收未运行付费生成或 Judge。
+本地验收覆盖匿名访问、上传、会话内检索、Source JSON/SSE、重启持久化、TTL 清理及离线恢复。此前迁移评估在三份 PDF 的 30 条用例和 90 条证据引文上测得 60.7% 的平均预期页召回率。该指标衡量检索覆盖。生成和 Judge 质量由独立任务评估。本轮结果及跳过事项见[阶段记录](plans/TASKS.md#current-execution)。
 
 ## 数据与部署
 
-- 匿名会话凭据绝对有效期为 24 小时。浏览器使用安全 Cookie，脚本可在创建时请求 Bearer 令牌。浏览器只保存活动会话定位值和语言偏好，刷新后清空页面聊天回合。
+- PostgreSQL 保存对话上下文和提取片段。浏览器 Web Storage 只保留活动会话定位值和语言偏好。应用清理旧聊天缓存，对应用日志中的会话 ID、原始路径和异常正文做脱敏。生成回答时，问题和相关片段可能发送给配置的模型供应商。
 - 数据库自动清理默认关闭。需要自动删除时可启用 `SESSION_RETENTION_ENABLED`。显式删除会话会一并清理其消息、文档和向量。凭据到期后，已有数据仍按数据库保留策略处理。
 - 迁移旧 SQLite/FAISS 数据前，先阅读[本地存储与恢复指南](docs/LOCAL_STORAGE.md)。离线迁移工具使用[独立依赖](requirements.migration.txt)。
-- PostgreSQL/pgvector 已完成本地验证。本轮未切换 Render 或生产数据库，现有 Blueprint 不可当作新存储方案的部署指引。
+- 当前里程碑是本地发布候选。部署前仍需核验 Render 配置、生产备份与迁移、公开 HTTPS 来源及网关日志。
 
 [架构说明](docs/ARCHITECTURE.md) · [开发指南](docs/DEVELOPMENT.md) · [测试指南](docs/TESTING.md) · [路线图](plans/ROADMAP.md) · [任务记录](plans/TASKS.md)

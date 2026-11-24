@@ -71,7 +71,7 @@ T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用�
 | Summary、Compare | 固定主题查询，`k=30`，每文件最多取三块 | 全库候选不保证每份文档都有结果，未按当前问题定制检索 |
 | Keyword | 固定关键词查询，`k=10` | 代表性受候选召回限制 |
 
-上述实现见 [tools/](../tools)。查询中的 session/profile 过滤及复合 FK 提供数据范围隔离，但会话 ID 的保密不等同于已实现用户所有权校验。
+上述实现见 [tools/](../tools)。查询中的 session/profile 过滤和复合外键约束检索范围，HTTP 所有者凭据控制请求能否进入该会话。
 
 [citations.py](../utils/citations.py) 从 source 和零基 page 产生文件名及一基物理 PDF 页码；[agent_service.py](../app/services/agent_service.py) 去重并返回最多 800 字符的来源摘要。返回来源是检索结果集合，不证明最终每句话都被证据支持。
 
@@ -79,7 +79,7 @@ T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用�
 
 ## 5. PostgreSQL 持久化与生命周期
 
-session_store 保留原服务入口，转接 postgres_store。sessions、session_messages、session_documents 和 document_chunks 由 Alembic 管理。会话读取在加锁后采样UTC秒级时间，以max(原活动时间,当前时间)单调刷新；消息按批次幂等追加并使用父会话行锁，文档和向量同事务提交。删除/TTL 依赖 FK 级联，不扫描或删除历史 FAISS 目录。0003_request_leases增量表记录工作流在途租约，截止不超过T03剩余请求时间；短事务获取/释放，未跨LLM持连接。TTL清理排除未到期租约，显式删除仍立即生效且旧快照不能复活。SQL全局lock/statement timeout及请求剩余截止共同约束语句；池与建连等待单独有界，不能据此承诺整个HTTP立即结束。
+`session_store` 转接 `postgres_store`。Alembic 管理会话、消息、文档、向量、请求租约和所有者凭据，当前 revision 为 `0004_session_credentials`。会话读取在行锁内采样 UTC 时间并单调刷新活动时间。消息按批次幂等追加，文档和向量同事务提交。显式删除或 TTL 清理通过外键级联影响会话数据、凭据和租约。有效租约阻止 TTL 清理，显式删除后旧快照无法复活会话。SQL 锁等待与语句截止受配置和剩余预算约束，连接池及建连等待各自有界。详见[本地存储指南](LOCAL_STORAGE.md)。
 
 当前本地迁移按用户要求关闭 SESSION_RETENTION_ENABLED。启用后的 TTL 边界仍为 updated_at <= now - TTL；恢复清理需用户确认。迁移与恢复工具、独立数据库及启动命令见 [LOCAL_STORAGE.md](LOCAL_STORAGE.md)。旧 SQLite/FAISS 保留；FAISS 只通过独立迁移依赖安装，API、原型和真实 PDF 评估均使用 pgvector。
 

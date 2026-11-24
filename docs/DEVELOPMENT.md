@@ -32,7 +32,7 @@ python -m pip install -r requirements.api.txt
 
 所有文件的名称及字节数先预检，失败不写入文档或向量（会话读取仍可能刷新活动时间）。之后仍逐文件解析、编码和原子提交；第二份 PDF 解析失败时，第一份成功文件保留，可读取会话确认后重传。重复文件名仍跳过。这些限制不改变响应字段或 SSE 事件。
 
-阈值是可调整的保护默认值，不是压测容量结论。多进程/副本额度相加；尚无会话累计存储配额或身份级速率限制。解析器单页解压、原生编码并没有硬内存/CPU沙箱；取消时等待运行线程结束，在阶段边界停止后续工作，不能回滚已开始的数据库提交。LLM预算见下一节；长时间解析、完整SSE断线恢复和持久化终态仍需T06等补强。可信本地评估不经过HTTP上传限额，禁止对不可信PDF无界运行。
+阈值是可调整的保护默认值，多进程或副本的额度相加。尚无会话累计存储配额或身份级速率限制。解析器单页解压和原生编码仍缺少硬内存/CPU 沙箱。取消会等待当前运行线程结束，并在阶段边界停止后续工作。已开始的数据库提交沿用原子事务语义。问答终态与断线处理见[执行契约](EXECUTION.md)。可信本地评估绕过 HTTP 上传限额，只使用受控数据。
 
 <a id="llm-budgets"></a>
 ## LLM 预算、重试与离线门禁（T03，2026-11-24）
@@ -45,7 +45,7 @@ Planner、Memory摘要、所有Specialist、Collaboration、最多一次补充�
 
 SDK自动重试固定为0。应用默认也不重试，可配置0–2次，仅连接/超时、HTTP408/409/429/5xx可重试；认证/参数错误、畸形回答不重试。每次重试重新竞争共享额度，等待计入截止，指数退避并受最大等待限制；过长的数字Retry-After不重试。失败且无用量仍为未知费用，不能当作免费。HTTP断连和生成器关闭会取消同一预算，阻止后续新调用/重试；在途请求不保证立即终止，断线后的完整保存/恢复仍属T06/T07。
 
-`llm_budget_reserved/settled/exhausted/cancelled/finished`、`llm_call_failed`与重试事件只记录额度、计数、固定原因、操作和错误类型，不记录Prompt、PDF正文、Key或原始供应商异常。API响应字段与SSE的progress/result类型保持不变，预算耗尽复用既有失败进度和安全结果。更细的失败/降级展示仍由T06处理。
+`llm_budget_reserved/settled/exhausted/cancelled/finished`、`llm_call_failed` 与重试事件只记录受控诊断和用量。预算耗尽进入安全的失败或降级结果，由 JSON 和 SSE 共同使用的 `execution` 字段说明生成与保存状态。事件和状态定义见[执行契约](EXECUTION.md)。
 
 `PDF_AGENT_DISABLE_LLM_API=1`在真实客户端工厂阻止网络访问（即使已有客户端/Key），CI固定开启。仅`0`或`false`允许客户端访问，空值或无效值同样关闭。标准unittest包入口默认也开启，只有显式的付费测试opt-in才不强制该值；不在CI清除此保护。CLI的routing完全不用模型，歧义用例记失败；live/real-pdf生成及Judge统一要求`--allow-paid-api`，免费Source也在禁止LLM的上下文执行。缓存探针保留64输出Token/次、2–5次、零重试的原限制，同时使用统一预算与用量网关。运行命令见[测试文档](TESTING.md)，代码中的付费开关不是替代任务授权。
 
@@ -69,7 +69,7 @@ SDK自动重试固定为0。应用默认也不重试，可配置0–2次，仅�
 
 model_output_repaired记录固定修复代码；model_output_validation_failed记录节点、固定原因和Pydantic错误代码，planner_fallback/collaboration_fallback记录确定性回退。日志不包含响应、问题、文档、原始ValidationError、错误位置键或输入值，避免恶意字段名也泄露内容。
 
-这些Schema校验类型和执行控制，不证明事实正确、引用受支持或完全防提示注入；自然语言空文本/质量与Memory容量仍由其他任务处理。严格七字段和长度上限尚未做付费模型遵循率验证。节点failed/fallback如何汇总为全局终态、断流恢复及保存失败仍是T06/T07；T09a不新增这些协议，也不自动开始T06。
+这些 Schema 用于类型和执行控制。事实、引用支持度、自然语言质量及提示注入鲁棒性仍需独立评估。严格七字段和长度上限尚未做付费模型遵循率验证。节点失败、降级、断流和保存失败按[执行契约](EXECUTION.md)汇总与展示。上下文容量、摘要缓存及并发行为见 [Memory](MEMORY.md)。
 
 ## 运行和调试
 
@@ -135,7 +135,7 @@ $env:TEST_DATABASE_URL = 'postgresql+psycopg://pdf_agent:' + [Uri]::EscapeDataSt
 
 连接配置由 `load_database_settings()` 显式读取环境，模块导入不读取 `.env` 或连接数据库。`DATABASE_URL` 缺失/错误会报配置异常，无 SQLite fallback；现有 SQLite 服务尚未调用这个入口。允许 postgres/postgresql/postgresql+psycopg 前缀，密码须 URL 编码；TLS 支持 sslmode/sslrootcert/sslcert/sslkey，另支持 application_name，拒绝通过 URL query 覆盖 host、timeout、options 或 service。配置对象 repr 隐藏整个 URL；调用方仍不得主动打印原始 URL 或驱动异常正文。
 
-`DB_POOL_SIZE=5`、`DB_MAX_OVERFLOW=0`、`DB_POOL_TIMEOUT_SECONDS=5`、`DB_CONNECT_TIMEOUT_SECONDS=5` 是初始默认值，不是容量结论。前三项控制每进程 QueuePool，超时均为正数，overflow 可为零；connect timeout 为整数，libpq 对过小值可能采用自身最小等待时间。连接使用 UTC，开启 pre_ping、关闭 echo 并隐藏 SQL 参数。所有者显式创建/关闭 Engine，每个工作线程在短 `engine.begin()` 内取得和归还 Connection；不跨模型调用/SSE 持连接，断连中的事务不会自动重放。应用生命周期接入留给 T15c。
+`DB_POOL_SIZE=5`、`DB_MAX_OVERFLOW=0`、`DB_POOL_TIMEOUT_SECONDS=5`、`DB_CONNECT_TIMEOUT_SECONDS=5` 是初始默认值。前三项控制每进程 QueuePool，overflow 可为零。connect timeout 是整数，libpq 对过小值可能采用自身最小等待时间。连接使用 UTC，开启 pre_ping、关闭 echo 并隐藏 SQL 参数。应用在生命周期内核验 Schema 并释放 Engine。存储操作使用短连接或短事务，模型调用和 SSE 全程无需持有数据库连接。断连的事务由调用方处理，且应用不会自动重放。
 
 ## 常见问题
 

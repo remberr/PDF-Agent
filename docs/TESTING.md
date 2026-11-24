@@ -168,6 +168,16 @@ try {
 
 [CI](../.github/workflows/ci.yml) 在main push/PR和手动触发时有四个job：Python3.11默认unittest/routing、独立PG/pgvector与离线恢复集成、Node22 build/test，以及Docker构建（`push: false`）。全局网络关闭变量固定为1，测试从tests包入口运行。默认不运行真实PDF/付费测试，不运行容器健康检查；当前也未上传评估报告为CI artifact。
 
+<a id="embedded-postgres-validation"></a>
+### 同容器发布验收
+
+```bash
+docker build -t pdf-agent:embedded-validation .
+python scripts/check_embedded_container.py pdf-agent:embedded-validation
+```
+
+脚本只用新建的测试卷和 Docker `--network none`，不接触本地历史目录或线上资源。限制为 1 CPU、2 GiB 且禁用 swap。验收启动门禁、非默认 `PORT`、Cookie/Bearer、Origin、BGE-M3、PDF、JSON/SSE、进程故障联动、干净停止、容器重建后会话与向量持久性，以及合成库的 PostgreSQL 原生备份恢复。输出容量峰值和耗时，测试制品运行后清理。手动上线再通过 Render HTTP 与日志验证同一提交、无新增资源、重启持久化及生产磁盘余量。
+
 历史验证证据：2026-11-16 上一阶段只读审计在 `4d4e55b` 上记录后端 69 项（66 通过、3 个 opt-in 跳过），前端 6 项通过、应用 TS noEmit 通过、routing 9/9 且零 LLM 调用。这不是本次文档变更的重新执行结果，也不包含前端完整 build、真实 PDF 生成、付费 API、Docker 运行或线上负载验证。本阶段纯文档验收只检查内容、链接、命令与改动范围。
 
 

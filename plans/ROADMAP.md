@@ -8,9 +8,9 @@
 
 现阶段工程成熟化已完成本地收尾，原 Dockerfile 重建镜像通过隔离数据库迁移、认证、上传、Source/SSE 和重启验收。匿名会话访问和隐私治理接续此前的终态契约、前端恢复、在途/SQL 边界及 Memory 容量改造。
 
-发布依次完成 GitHub `main` 推送及 CI 验证、T15e2 Render 部署准备、T15g 手动生产切换与运行验收。优先复用现有套餐和兼容的 PostgreSQL/pgvector，保持 Render 自动部署及 Blueprint 自动同步关闭。目标环境实测、备份恢复演练及必要发布前置验收是生产切换的依据。实际授权、状态和门禁见 [TASKS 当前队列](TASKS.md#current-execution)。
+发布依次完成 T15e2 同容器隔离验收、GitHub `main` 推送及 CI、T15g Render 手动切换与线上验收。现有单服务、套餐和磁盘承载 Web、BGE-M3 与 PostgreSQL/pgvector。只建立新库并保留旧数据，保持 Render 自动部署和 Blueprint 自动同步关闭。[部署设计](../docs/DEVELOPMENT.md#render-embedded-postgres) · [TASKS 当前队列](TASKS.md#current-execution)
 
-GitHub 已同步工程成熟化代码并通过 CI。Render 生产切换的下一里程碑需要可持久备份和恢复的 PostgreSQL/pgvector。保留现有服务和旧数据盘，按 [TASKS 当前队列](TASKS.md#current-execution) 的资源与迁移门禁执行。
+此前工程成熟化代码已同步 GitHub 并通过 CI。同容器里程碑的验收依据是现有资源下的实测、独立新目录、原生备份恢复及线上重启持久化。
 
 先在现有架构上补边界和回归，再根据实际压力决定是否拆服务。认证方案、阈值、超时、数据保留和允许的并发度需在对应任务启动时明确；不在文档阶段假定容量或业务需求。P3 为低风险原型整理和清晰度事项。
 

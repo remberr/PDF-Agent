@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
-    autoDeployTrigger: off
+    autoDeployTrigger: 'off'
     envVars:
       - key: DEEPSEEK_API_KEY
         sync: false
@@ -17,6 +17,8 @@ services:
         value: INFO
       - key: PDF_AGENT_DATA_DIR
         value: /data
+      - key: PDF_AGENT_DATABASE_MODE
+        value: embedded
       - key: SESSION_TTL_SECONDS
         value: "86400"
       - key: SESSION_CLEANUP_INTERVAL_SECONDS

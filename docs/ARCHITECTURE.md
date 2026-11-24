@@ -1,7 +1,7 @@
 <!-- 本地进行中迁移状态以 LOCAL_STORAGE.md / TASKS.md 为准，未发布。 -->
 # 系统架构与当前边界
 
-更新时间：2026-11-24（Asia/Shanghai，T01/T03及T09a结构边界同步）。描述本地实现，不表示在线实例已重新验证或发布。改造目标与状态见 [路线图](../plans/ROADMAP.md) 和 [任务清单](../plans/TASKS.md)；其他历史文档收敛仍由 T13a 跟踪。
+更新时间：2026-11-25（Asia/Shanghai，同容器 PostgreSQL 部署边界）。线上发布和验证状态见 [任务清单](../plans/TASKS.md)，长期方向见 [路线图](../plans/ROADMAP.md)。
 
 ## 1. 模块化单体
 
@@ -95,4 +95,4 @@ T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用�
 
 [evaluation/runner.py](../evaluation/runner.py) 有规则路由、受控 live、真实 PDF 三种模式。真实模式复用生产解析、切分、BGE-M3、pgvector 和 Graph；Judge 单独接收参考事实。语义标注仍是待人工复核参考，引用集合匹配不等于事实准确性。命令和结果解释见 [TESTING.md](TESTING.md)。
 
-Docker 多阶段构建前端，以非 root 运行 API并预缓存 Embedding。Compose 持久化 `/data`；[render.yaml](../render.yaml) 描述单服务、持久磁盘与手动部署。CI 构建镜像但不运行容器健康冒烟。Docker 健康检查写死 8000，而启动支持 `PORT`；调整端口时需同步处理。容器依赖/基础镜像/模型快照尚未全部锁定。在线配置、备份效果、并发容量和当前依赖漏洞适用性均需专项验证，不能由仓库配置推出结论。
+Docker 多阶段构建前端并预缓存固定 BGE-M3。Render 单服务中，启动器管理本地 PostgreSQL 17/pgvector 和 FastAPI 子进程。数据库进程、应用进程分别以非 root 运行。启动器检查 `/data` 挂载与余量；新库使用独立目录，监听本地地址，迁移完成后才启动应用。健康检查和 HTTP 端口均读取 `PORT`。本地 Compose 保留外接数据库用法。备份、资源限制和回退见[部署设计](DEVELOPMENT.md#render-embedded-postgres)，受限容器验收见[测试文档](TESTING.md#embedded-postgres-validation)。

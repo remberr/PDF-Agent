@@ -124,6 +124,10 @@ Alembic 增量 revision：先验证扩展可用/权限，再 `CREATE EXTENSION I
 
 ## 8. Render 架构、成本和上线流程
 
+2026-11-25 发布授权调整为复用现有 Render Web 实例、套餐及磁盘，在同容器运行 PostgreSQL/pgvector 和 Web 应用。仅初始化新库与迁移 Schema，旧版数据原样保留。本节下方保留最初托管 PG 与历史导入方案，以供设计追溯；现行操作见 [同容器部署设计](DEVELOPMENT.md#render-embedded-postgres)。
+
+### 历史规划：独立托管数据库与旧数据导入
+
 继续一个 Docker Web 服务托管 FastAPI + 已构建 React，本地 CPU BGE-M3；Managed PG 同时保存关系数据和 Chunk向量。首版单实例/单worker，避免多进程重复加载模型；无新GPU服务、Redis、pgvector独立服务。数据库与Web保持同工作区/区域（现有声明Singapore），核对环境隔离，优先内网连接。[Render私网](https://render.com/docs/private-network)
 
 Render支持vector扩展，但现有目标实例的PG主版本、扩展版本、权限与费用尚未查询；上线前先核查并复用已有 Managed PG，不能自动再创建收费数据库。若实际不存在，则另批创建。DATABASE_URL通过已有秘密或Blueprint fromDatabase connectionString注入，DeepSeek Key继续sync:false，均不放Docker ARG/源码。外网管理连接使用TLS和访问限制，沿用T15连接池。[Render扩展](https://render.com/docs/postgresql-extensions)

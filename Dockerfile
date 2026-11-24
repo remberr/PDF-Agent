@@ -11,7 +11,7 @@ COPY frontend/ ./
 RUN npm run build
 
 
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim-trixie AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -41,13 +41,28 @@ USER appuser
 # Cache the production model independently of changes to the rest of the source.
 COPY --chown=appuser:appuser utils/embeddings.py ./utils/embeddings.py
 RUN python -c "from utils.embeddings import create_bge_embeddings; create_bge_embeddings(local_files_only=False)"
+USER root
+
+# Give the persistent cluster a stable owner and keep package installation from
+# creating an unused cluster in the image.
+RUN groupadd --gid 10002 postgres \
+    && useradd --uid 10002 --gid postgres --home-dir /var/lib/postgresql --no-create-home postgres \
+    && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=3 update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install -y --no-install-recommends postgresql-common \
+    && printf 'create_main_cluster = false\n' > /etc/postgresql-common/createcluster.conf \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+        postgresql-17 postgresql-17-pgvector tini \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --chown=appuser:appuser . ./
 COPY --from=frontend-builder --chown=appuser:appuser \
     /frontend/dist ./frontend/dist
+COPY scripts/container_start.py scripts/postgres_hba.conf /opt/pdf-agent/
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['PORT'] + '/health', timeout=3)"
 
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-access-log"]
+ENTRYPOINT ["/usr/bin/tini", "--", "python", "/opt/pdf-agent/container_start.py"]

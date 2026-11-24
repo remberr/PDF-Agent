@@ -111,7 +111,31 @@ docker compose ps
 docker compose logs --tail 100 pdf-agent
 ```
 
-默认映射 8000，数据在命名卷 `pdf-agent-data`；不要用 `down -v` 排障，否则会删除持久数据。端口冲突优先改本地宿主机映射；容器内部改 `PORT` 时需处理硬编码健康检查。上述命令不推送镜像、不部署 Render。远程发布需另行授权与当时状态验证。
+默认映射 8000；不要用 `down -v` 排障，否则会删除命名卷。端口冲突优先改本地宿主机映射；容器健康检查读取 `PORT`。默认 Compose 仍用外接数据库，由部署环境显式升级 Schema。
+
+<a id="render-embedded-postgres"></a>
+### Render 单服务与同容器 PostgreSQL
+
+现有 `pdf-agent` Web 服务使用 1 CPU、2 GiB 与 1 GB `/data` 盘。镜像在 Render（`RENDER=true`）默认启用内置 PostgreSQL，也可用 `PDF_AGENT_DATABASE_MODE=embedded` 显式启用。由启动器在 `/data/pdf-agent-postgres/pg17` 创建并维护新库，旧目录保持原样。本次生产切换使用空数据库，旧会话、SQLite、FAISS、PDF 和向量不导入。用户需创建新会话并重新上传。Render 的同源浏览器 Origin 默认取 `RENDER_EXTERNAL_URL`，额外自定义域名使用 `SESSION_BROWSER_ORIGINS` 配置完整 HTTPS Origin。
+
+启动时必须检测到 `/data` 挂载且至少余 192 MiB，运行中低于 96 MiB 安全余量时停止进程，释放写入压力并保留数据。上线前盘点盘内占用，持续监测实际增长；阈值是安全余量，WAL 和库文件无固定写入上限。数据库只监听 `127.0.0.1:5432`，运维通过私有 Unix socket 的系统用户身份认证。应用和 Alembic 使用不同的数据库角色与启动时生成的 SCRAM 密码；迁移结束停用迁移角色登录。环境无需额外存储数据库连接串。
+
+启动器等待 PostgreSQL 就绪，准备 pgvector，再通过 `alembic upgrade head` 确认 Schema 后启动 Web 应用。迁移或子进程失败会关闭容器；接收停止信号时先停止 HTTP 应用，再干净关闭 PostgreSQL。单 Web worker、最多 3 个活跃池连接、PostgreSQL `shared_buffers=32MB`、`work_mem=1MB`、`max_connections=12`。单线程 BGE-M3、编码批次 1、同时最多一个问答及一个上传；模型内的编码锁继续串行处理。该部署默认值同时限制问题 2,000 字符、单批最多 2 份 PDF、单文件 10 MiB、单批 20 MiB、每份 PDF 40 页、48,000 字符和 48 个 Chunk。本地外接数据库模式沿用现有输入默认值。
+
+切换以正常推送并通过 CI 的提交为准，保持 Auto Deploy、Blueprint Auto Sync 关闭，手动部署同一服务。不改盘挂载、大小或套餐。带盘部署会短暂中断。旧部署制品与旧数据目录保留；若首发失败，先确认平台当前 live 版本，再按需回退到预先核实的旧制品。新库若已有写入，先保全新库原生备份，再决定切换；旧构建不读取新目录。保留数据的回滚不执行降级、不覆盖或恢复整个 `/data` 快照。
+
+原生备份由服务 Shell 中的 `postgres` 系统用户完成。将 `pg_dump -Fc` 产物存入临时受限文件，再通过安全 SSH/SCP 转移至既有受限位置，并记录恢复测试、校验值与保护周期。不要把备份、凭据或业务正文放入 Git 或日志。
+
+```bash
+# Render Shell，使用 root 运行。随后安全转出打印的临时文件。
+archive=$(mktemp /tmp/pdf-agent-XXXXXX.dump)
+runuser -u postgres -- pg_dump -h /run/pdf-agent-postgres -Fc pdf_agent > "$archive"
+runuser -u postgres -- pg_dump --version
+sha256sum "$archive"
+printf '%s\n' "$archive"
+```
+
+只向隔离 PostgreSQL 17 实例的专用空库执行 `pg_restore --exit-on-error --single-transaction`，确保 pgvector 可用，核对 Alembic、会话、消息、文档、凭据和向量后再评估恢复切换。需保留对象所有权时预建同名角色。对新库保留原生备份；Render 磁盘快照不作为自管 PostgreSQL 的恢复方式。没有可核实备份或盘容量时，暂停实际数据操作。相关平台约束见 [Render 持久盘](https://render.com/docs/disks) 与 [部署与回退](https://render.com/docs/deploys)。
 
 ## PostgreSQL 迁移开发环境（T15a）
 

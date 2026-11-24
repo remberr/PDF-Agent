@@ -4,7 +4,7 @@
 
 ## 当前应用入口
 
-API 的 `app/services/session_store.py` 转接 PostgreSQL，上传用 BGE-M3 编码后在同一事务写文档、Chunk 和页数。`utils/pgvector_store.py` 按 session/profile 过滤后精确 cosine top-k，保留 source/page。Graph、公开 API 和 SSE 协议未改动。
+API 的 `app/services/session_store.py` 转接 PostgreSQL，上传用 BGE-M3 编码后在同一事务写文档、Chunk 和页数。`utils/pgvector_store.py` 按 session/profile 过滤后精确 cosine top-k，保留 source/page。存储迁移保留Graph及API/SSE原字段；T06增量终态另见[执行契约](EXECUTION.md)。
 
 SQLAlchemy 同步连接池由 `app/db/runtime.py` 管理，Alembic 显式执行，启动只检查 schema。不得通过 `create_all` 或 stamp 跳过迁移。模型编码不持有数据库连接。消息保存按批次追加，不覆盖其他请求的消息。
 
@@ -73,3 +73,14 @@ $env:PDF_AGENT_RUN_LOCAL_PDF_TESTS='0'
 应用镜像构建成功后，可配置内部 `DOCKER_DATABASE_URL`（`db:5432/pdf_agent_local`，密码需 URL 编码），运行 `docker compose --env-file .evaluation-local/vector-local.env -f compose.vector.yaml --profile app up --build`。迁移服务先于 API 执行。使用旧的默认 `compose.yaml` 时，必须显式提供指向已迁移 PostgreSQL 的 `DATABASE_URL`；该文件不再支持仅使用旧本地 SQLite 卷启动。独立验收使用另一个 Compose 项目和 `pdf_agent_test`，不使用历史卷。
 
 历史 7 会话/51 Chunk 导入、重复对账、数据库重启后逐向量对账通过；原库和索引保留。3PDF/30问题的页召回均值由旧 MiniLM 基线 51.8% 变为 BGE 60.7%，但 4 题下降，需要后续质量复核。容器验收和剩余限制见 [TASKS](../plans/TASKS.md)。
+
+
+## 在途与SQL边界（T05a）
+
+当前Schema为`0003_request_leases`。`alembic upgrade head`只新增操作租约表/索引和FK，不改写现有会话、聊天、PDF或向量。必须显式迁移后启动；启动不自动升级。当前轮仅升级隔离测试库，历史本地库和生产库没有迁移。
+
+工作流的已持久化会话快照在派发前获取租约，期限由T03剩余请求时间决定，获取锁等待会扣除剩余租期；结束/取消后短事务释放并刷新活动时间，失败清理记录日志，由租约到期兜底。TTL删除/过期读取排除有效租约，主动删除仍级联且不会被旧快照复活。默认SESSION_RETENTION_ENABLED=false保持不变；关闭时只清理过期操作租约，不清理会话。没有跨LLM/SSE持有数据库事务或连接。PDF上传仍由原短事务处理，未给解析/Embedding添加后台心跳或无限租期；若其超出TTL且清理已开启，提交可安全失败，不复活过期会话。
+
+DB_LOCK_TIMEOUT_MS默认3000，DB_STATEMENT_TIMEOUT_MS默认10000，均为正整数；所有连接含pre_ping有服务器侧默认边界。工作流语句额外用SET LOCAL裁剪到T03剩余时间，事务结束清除，避免池中泄漏设置。取消/截止后拒绝新业务SQL；租约释放可绕过已耗尽的请求预算，但仍受默认SQL边界约束，不重试业务写入。池等待和建连分别由既有5秒默认值限制，不被动态语句截止替代，故不承诺硬实时HTTP取消。多工作进程应保持主机时钟同步；单调活动时间不会倒退，但墙钟调整可能影响TTL/租约的实际到期时刻。
+
+回退旧二进制前必须排空在途请求并审核数据库版本。旧二进制检查0002版本，不能直接带新Schema启动；downgrade会删除操作租约表，需另行明确批准后才能执行。本轮没有执行downgrade或删除历史数据。

@@ -389,7 +389,7 @@
 | T14 | P2 / 待实施（进入2027年前） | F14；无依赖。本轮没有核实最新官方费率；后续核实官方日历、别名和独立币种价格，测试未知年份降级 |
 | T15g | P1 / 待实施（未获生产操作授权） | 本地完成不能代替目标配置、角色、备份和容量验证；需要维护窗口与具体批准，不自动上线 |
 
-### T05a · P2 · 待实施：在途请求、时间和 SQL 等待边界
+### T05a · P2 · 已完成（DONE）：在途请求、时间和 SQL 等待边界
 
 - 对应F08；保留T05历史原子性/并发验收。文件：app/services/postgres_store.py、app/db/engine.py、agent_service.py。
 - 风险与方案：锁前时间可能倒退、TTL启用时长请求缺租约、SQL等待无服务器截止；采用锁后/单调时间、受限在途策略和lock/statement timeout，不跨LLM持事务。
@@ -528,3 +528,14 @@
 - RED：新增入口测试因尚无模块失败；随后组件/API测试复现旧结果全节点完成、保存失败未显示、跨会话响应未拒绝三个失败。最终`npm test`19/19（原6+新增13），`npm run build`完整tsc/Vite通过；日志.evaluation-local/t07-tests-final.log和t07-build-final.log。未降低断言。
 - 测试包括真实WorkflowPanel的React SSR双语组件渲染、逐字节UTF8/CRLF、空/截断/畸形/无终态、AbortSignal释放与完整result无需等待EOF、HTTP分类无自动重试、旧请求/存储失败。后端代码未改，复用T06最终全量209项206通过/3跳过和零LLM评估结果；未重复跑相同后端检查。
 - 限制：无真实浏览器挂载/E2E自动化；同步服务端在途工作不保证客户端abort即终止。严格响应校验的外部客户端需适配增量字段。未执行付费API、生产、远程CI、推送/部署。
+
+
+## T05a 实施与验收（2026-11-24）
+
+- 前置T06/T07已提交（6cf2e0c/8f1155f）。新0003_request_leases是加表/索引/FK的非破坏性Alembic迁移，不搬迁或改写原会话/聊天/向量；只在55440独立pdf_agent_maturity_test升级，未运行历史/生产迁移或降级。
+- 读写在行锁后采样并单调更新活动时间；问答快照获取有截止的共享数据库租约，不跨LLM持事务/连接；TTL排除有效租约，显式删除仍胜出且旧快照无法复活；退出/取消释放，进程崩溃由到期兜底。默认TTL保持关闭，过期操作租约仍可清理。
+- DB_LOCK_TIMEOUT_MS/DB_STATEMENT_TIMEOUT_MS服务器默认边界；SET LOCAL额外裁剪到T03剩余截止，池中不泄漏，取消拒绝业务SQL。租约释放允许在耗尽预算后执行短清理，但仍受服务器超时约束，无业务写入自动重试。
+- RED：首批6场景1断言失败/5缺实现错误；关闭TTL未清理过期操作租约的追加断言失败；实现后全部通过。新增8项PG+1项配置回归，旧driver options及schema revision断言更新为新准确值，保留原校验强度。
+- 完整回归`.venv/Scripts/python.exe -B -m unittest discover -s tests -t . -v`：218项215通过/3跳过（19.075秒），PG及legacy恢复开启、真实PDF与付费关闭，.evaluation-local/t05a-full-pg.log。默认离线同命令218项179通过/39跳过，.evaluation-local/t05a-default.log；定向46项45通过/1 opt-in跳过。未降低断言或跳过新增必需PG测试。
+- 前端未改，复用T07的19/19及完整构建。静态检查为git diff --check，无已配置Python lint/type-check。未调用真实付费API、重建镜像、远程CI、生产/Render或push。
+- 剩余边界：池/建连等待仍单独最多默认5秒，不是硬实时总HTTP截止；墙钟偏移会影响UTC租约/TTL实际时刻，需主机同步；上传解析/Embedding仍无心跳租约，TTL开启且超期时安全失败而非复活会话。旧二进制回退需审核Schema版本并排空请求，未执行破坏性downgrade。详见LOCAL_STORAGE。

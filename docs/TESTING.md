@@ -163,3 +163,8 @@ try {
 [CI](../.github/workflows/ci.yml) 在main push/PR和手动触发时有四个job：Python3.11默认unittest/routing、独立PG/pgvector与离线恢复集成、Node22 build/test，以及Docker构建（`push: false`）。全局网络关闭变量固定为1，测试从tests包入口运行。默认不运行真实PDF/付费测试，不运行容器健康检查；当前也未上传评估报告为CI artifact。
 
 历史验证证据：2026-11-16 上一阶段只读审计在 `4d4e55b` 上记录后端 69 项（66 通过、3 个 opt-in 跳过），前端 6 项通过、应用 TS noEmit 通过、routing 9/9 且零 LLM 调用。这不是本次文档变更的重新执行结果，也不包含前端完整 build、真实 PDF 生成、付费 API、Docker 运行或线上负载验证。本阶段纯文档验收只检查内容、链接、命令与改动范围。
+
+
+## 时间、在途及SQL集成（T05a）
+
+在上述独立TEST_DATABASE_URL安全规则下设置PDF_AGENT_RUN_POSTGRES_TESTS=1，运行`python -B -m unittest tests.test_session_concurrency tests.test_db_config -v`。8项PG场景覆盖屏障控制锁后时间/不倒退、跨TTL/释放/崩溃过期、主动删除/无复活、取消关闭租约归还、关闭TTL仅清理操作租约、lock/statement timeout回滚与池复用，以及T03剩余截止和SET LOCAL不泄漏；配置回归拒绝零/非法超时。迁移回归升级非空旧Schema后核对原会话元数据与新revision，不执行历史库降级。无生产数据库与真实LLM依赖。

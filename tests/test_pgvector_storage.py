@@ -299,7 +299,7 @@ class PgvectorStorageTests(unittest.TestCase):
                 row = connection.execute(select(sessions).where(sessions.c.session_id == sid)).mappings().one()
                 self.assertEqual(row['document_count'], 2)
                 self.assertEqual(int(row['created_at'].timestamp()), 1000)
-                self.assertEqual(connection.scalar(text('SELECT version_num FROM alembic_version')), '0002_vectors')
+                self.assertEqual(connection.scalar(text('SELECT version_num FROM alembic_version')), '0003_request_leases')
             finally:
                 transaction.rollback()
 

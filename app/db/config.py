@@ -20,6 +20,8 @@ class DatabaseSettings:
     max_overflow: int = 0
     pool_timeout_seconds: float = 5
     connect_timeout_seconds: int = 5
+    lock_timeout_ms: int = 3000
+    statement_timeout_ms: int = 10000
 
 
 def load_database_settings(
@@ -82,4 +84,6 @@ def load_database_settings(
         max_overflow=integer("DB_MAX_OVERFLOW", 0, 0),
         pool_timeout_seconds=pool_timeout,
         connect_timeout_seconds=integer("DB_CONNECT_TIMEOUT_SECONDS", 5, 1),
+        lock_timeout_ms=integer('DB_LOCK_TIMEOUT_MS', 3000, 1),
+        statement_timeout_ms=integer('DB_STATEMENT_TIMEOUT_MS', 10000, 1),
     )

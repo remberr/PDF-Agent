@@ -10,6 +10,7 @@ from agent.state import create_initial_agent_state, empty_collaboration_notes
 from utils.execution import error_reason, outcome
 from utils.llm_budget import LLMClientError
 from app.services.session_store import save_session
+from app.services.postgres_store import acquire_session_lease, release_session_lease
 from utils.observability import (
     get_usage_summary,
     log_event,
@@ -196,8 +197,9 @@ def _execution(state, *, reason=None, cancelled=False):
 
 def iter_pdf_agent_events(session, question, request_id=None, llm_budget=None):
     tracker = new_usage_tracker(llm_budget)
+    lease = {}
     try:
-        yield from _iter_pdf_agent_events(session, question, request_id, tracker)
+        yield from _iter_pdf_agent_events(session, question, request_id, tracker, lease)
     except GeneratorExit:
         tracker.budget.cancel('workflow_closed')
         with observability_context(request_id, session.get('session_id'), tracker):
@@ -205,12 +207,18 @@ def iter_pdf_agent_events(session, question, request_id=None, llm_budget=None):
                       usage=get_usage_summary(tracker), persistence='not_attempted_or_already_saved')
         raise
     finally:
+        if lease:
+            try:
+                release_session_lease(session['session_id'], lease['id'])
+            except Exception as exc:
+                with observability_context(request_id, session.get('session_id'), tracker):
+                    log_event(logger, logging.ERROR, 'agent_lease_release_failed', error_type=type(exc).__name__)
         with observability_context(request_id, session.get('session_id'), tracker):
             log_event(logger, logging.INFO, 'llm_budget_finished', **tracker.budget.summary())
             tracker.budget.cancel('workflow_closed')
 
 
-def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
+def _iter_pdf_agent_events(session, question, request_id, usage_tracker, lease):
     """
     Run the LangGraph workflow and yield progress plus the final result.
     """
@@ -258,6 +266,12 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
     graph_events = None
 
     try:
+        with observability_context(request_id, session_id, usage_tracker):
+            usage_tracker.budget.check()
+            # Only persisted snapshots own DB leases. Synthetic/evaluation
+            # sessions without persistence markers keep their existing behavior.
+            if '_persisted_message_count' in session:
+                lease['id'] = acquire_session_lease(session_id, usage_tracker.budget.remaining_seconds())
         pdf_agent_graph = get_pdf_agent_graph()
         graph_events = iter(
             pdf_agent_graph.stream(

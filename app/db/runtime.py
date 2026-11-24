@@ -6,7 +6,7 @@ from app.db.engine import create_database_engine
 
 _engine = None
 _lock = Lock()
-SCHEMA_REVISION = '0002_vectors'
+SCHEMA_REVISION = '0003_request_leases'
 
 
 def get_engine():

@@ -61,6 +61,14 @@ class DatabaseConfigurationTests(unittest.TestCase):
                     load_database_settings({"DATABASE_URL": URL, key: "0"})
         self.assertTrue(math.isfinite(settings.pool_timeout_seconds))
 
+    def test_server_sql_timeouts_are_positive_explicit_and_configurable(self):
+        settings=load_database_settings({'DATABASE_URL':URL,'DB_LOCK_TIMEOUT_MS':'150','DB_STATEMENT_TIMEOUT_MS':'750'})
+        self.assertEqual((settings.lock_timeout_ms,settings.statement_timeout_ms),(150,750))
+        for key in ('DB_LOCK_TIMEOUT_MS','DB_STATEMENT_TIMEOUT_MS'):
+            for value in ('0','-1','nan','1.5','secret-marker'):
+                with self.subTest(key=key,value=value),self.assertRaises(DatabaseConfigurationError):
+                    load_database_settings({'DATABASE_URL':URL,key:value})
+
     def test_query_cannot_override_host_timeout_or_timezone(self):
         for query in ("host=remote", "password=secret-marker", "connect_timeout=0",
                       "options=-c%20timezone=Asia/Shanghai", "service=production",
@@ -97,7 +105,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
             with self.assertRaises(OperationalError):
                 engine.connect()
         self.assertEqual(connect.call_args.kwargs["connect_timeout"], 3)
-        self.assertEqual(connect.call_args.kwargs["options"], "-c timezone=UTC")
+        self.assertEqual(connect.call_args.kwargs["options"], "-c timezone=UTC -c lock_timeout=3000 -c statement_timeout=10000")
         self.assertEqual(engine.pool.checkedout(), 0)
 
     def test_module_import_does_not_read_configuration_or_connect(self):

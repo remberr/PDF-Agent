@@ -59,7 +59,7 @@ T09a只校验实际控制JSON：Planner为非空且原始长度最多五项的�
 
 T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用原ContextVar/copy_context传播到并行步骤；所有LLM派发经过[统一网关](../utils/llm_client.py)原子预留/结算。API断连信号传给同一预算，Streamlit和评估也按工作流建立作用域；Agent/Judge的用量与预算各自独立。截止或耗尽后停止新派发并复用既有失败progress/result，不改Graph拓扑。实际usage不含预留；配置、I/O超时与不可立即终止在途请求的限制见[开发文档](DEVELOPMENT.md#llm-budgets)。
 
-普通回答和SSE共用iter_pdf_agent_events，保留progress与最终result，非逐Token流。T06已增量提供execution与节点结果快照，区分生成/保存成功、降级、失败、取消；Graph与保存异常不再被记录为整体成功。JSON/SSE正常传输共享终态，断流不可保证送达；关闭迭代器取消同一预算并清理Graph，不自动重放。在途SDK不能保证立即终止。字段、状态转换和旧客户端边界见[执行契约](EXECUTION.md)。T07前端已适配；T05a在途TTL/SQL等待仍按TASKS推进。
+普通回答和SSE共用iter_pdf_agent_events，保留progress与最终result，非逐Token流。T06已增量提供execution与节点结果快照，区分生成/保存成功、降级、失败、取消；Graph与保存异常不再被记录为整体成功。JSON/SSE正常传输共享终态，断流不可保证送达；关闭迭代器取消同一预算并清理Graph，不自动重放。在途SDK不能保证立即终止。字段、状态转换和旧客户端边界见[执行契约](EXECUTION.md)。T07前端已适配；T05a已补充在途租约与SQL等待边界，详见存储生命周期。
 
 ## 4. 检索、引用与 Memory
 
@@ -79,7 +79,7 @@ T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用�
 
 ## 5. PostgreSQL 持久化与生命周期
 
-session_store 保留原服务入口，转接 postgres_store。sessions、session_messages、session_documents 和 document_chunks 由 Alembic 管理。会话读取刷新 UTC 秒级时间；消息按批次幂等追加并使用父会话行锁，文档和向量同事务提交。删除/TTL 依赖 FK 级联，不扫描或删除历史 FAISS 目录。
+session_store 保留原服务入口，转接 postgres_store。sessions、session_messages、session_documents 和 document_chunks 由 Alembic 管理。会话读取在加锁后采样UTC秒级时间，以max(原活动时间,当前时间)单调刷新；消息按批次幂等追加并使用父会话行锁，文档和向量同事务提交。删除/TTL 依赖 FK 级联，不扫描或删除历史 FAISS 目录。0003_request_leases增量表记录工作流在途租约，截止不超过T03剩余请求时间；短事务获取/释放，未跨LLM持连接。TTL清理排除未到期租约，显式删除仍立即生效且旧快照不能复活。SQL全局lock/statement timeout及请求剩余截止共同约束语句；池与建连等待单独有界，不能据此承诺整个HTTP立即结束。
 
 当前本地迁移按用户要求关闭 SESSION_RETENTION_ENABLED。启用后的 TTL 边界仍为 updated_at <= now - TTL；恢复清理需用户确认。迁移与恢复工具、独立数据库及启动命令见 [LOCAL_STORAGE.md](LOCAL_STORAGE.md)。旧 SQLite/FAISS 保留；FAISS 只通过独立迁移依赖安装，API、原型和真实 PDF 评估均使用 pgvector。
 

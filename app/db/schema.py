@@ -15,6 +15,12 @@ sessions = Table('sessions', metadata,
     CheckConstraint('document_count >= 0', name='session_pages_nonnegative'),
 )
 Index('ix_sessions_updated_at', sessions.c.updated_at)
+request_leases = Table('session_request_leases', metadata,
+    Column('lease_id', UUID(as_uuid=True), primary_key=True),
+    Column('session_id', String(32), ForeignKey('sessions.session_id', ondelete='CASCADE'), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=False),
+)
+Index('ix_request_lease_session_expiry', request_leases.c.session_id, request_leases.c.expires_at)
 messages = Table('session_messages', metadata,
     Column('session_id', String(32), ForeignKey('sessions.session_id', ondelete='CASCADE'), primary_key=True),
     Column('ordinal', BigInteger, primary_key=True),

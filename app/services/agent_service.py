@@ -171,14 +171,23 @@ def _save_result(session, result):
     save_session(session)
 
 
-def iter_pdf_agent_events(session, question, request_id=None):
+def iter_pdf_agent_events(session, question, request_id=None, llm_budget=None):
+    tracker = new_usage_tracker(llm_budget)
+    try:
+        yield from _iter_pdf_agent_events(session, question, request_id, tracker)
+    finally:
+        with observability_context(request_id, session.get('session_id'), tracker):
+            log_event(logger, logging.INFO, 'llm_budget_finished', **tracker.budget.summary())
+            tracker.budget.cancel('workflow_closed')
+
+
+def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
     """
     Run the LangGraph workflow and yield progress plus the final result.
     """
 
     pdf_agent_graph = get_pdf_agent_graph()
     workflow_started_at = perf_counter()
-    usage_tracker = new_usage_tracker()
     session_id = session.get("session_id")
 
     with observability_context(request_id, session_id, usage_tracker):
@@ -215,6 +224,7 @@ def iter_pdf_agent_events(session, question, request_id=None):
         usage_tracker=usage_tracker,
     )
     node_started_at = perf_counter()
+    graph_events = None
 
     try:
         graph_events = iter(
@@ -231,7 +241,9 @@ def iter_pdf_agent_events(session, question, request_id=None):
                     session_id,
                     usage_tracker,
                 ):
+                    usage_tracker.budget.check()
                     chunk = next(graph_events)
+                    usage_tracker.budget.check()
             except StopIteration:
                 break
 
@@ -326,6 +338,9 @@ def iter_pdf_agent_events(session, question, request_id=None):
             completed_nodes,
             usage_tracker=usage_tracker,
         )
+    finally:
+        if graph_events is not None and hasattr(graph_events, 'close'):
+            graph_events.close()
 
     timings = dict(state.get("timings", {}))
     timings["total"] = round(
@@ -360,27 +375,31 @@ def iter_pdf_agent_events(session, question, request_id=None):
     }
 
 
-def ask_pdf_agent(session, question, request_id=None):
+def ask_pdf_agent(session, question, request_id=None, llm_budget=None):
     """
     Run the workflow synchronously for backward-compatible API clients.
     """
 
     result = None
 
-    for event in iter_pdf_agent_events(session, question, request_id):
+    for event in iter_pdf_agent_events(session, question, request_id, llm_budget):
         if event["type"] == "result":
             result = event["data"]
 
     return result
 
 
-def stream_pdf_agent(session, question, request_id=None):
+def stream_pdf_agent(session, question, request_id=None, llm_budget=None):
     """
     Serialize workflow events as Server-Sent Events.
     """
 
-    for event in iter_pdf_agent_events(session, question, request_id):
-        yield (
-            f"event: {event['type']}\n"
-            f"data: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
-        )
+    events = iter_pdf_agent_events(session, question, request_id, llm_budget)
+    try:
+        for event in events:
+            yield (
+                f"event: {event['type']}\n"
+                f"data: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+            )
+    finally:
+        events.close()

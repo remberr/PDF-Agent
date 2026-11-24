@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
+from app.input_limits import InputLimitsMiddleware
 from app.db.runtime import dispose_engine
 from app.services.session_store import (
     SESSION_CLEANUP_INTERVAL_SECONDS,
@@ -81,6 +82,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(InputLimitsMiddleware)
+# Keep CORS outside input admission so 408/413/429 are readable by the UI.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_cors_origins(),

@@ -11,11 +11,32 @@ Responsibilities:
 import hashlib
 from collections import OrderedDict
 from threading import Lock
+from contextlib import contextmanager
 
 from utils.llm_client import LLMClientError, chat_with_deepseek
+from utils.observability import get_active_usage_tracker
 
 _memory_cache = {}
 _memory_cache_lock = Lock()
+
+
+@contextmanager
+def _bounded_memory_lock():
+    tracker = get_active_usage_tracker()
+    if tracker is None:
+        with _memory_cache_lock:
+            yield
+        return
+    budget = tracker.budget
+    while True:
+        budget.check()
+        if _memory_cache_lock.acquire(timeout=min(0.1, budget.remaining_seconds())):
+            break
+    try:
+        budget.check()
+        yield
+    finally:
+        _memory_cache_lock.release()
 
 
 def _hash_text(text):
@@ -74,7 +95,7 @@ def build_llm_conversation_summary(chat_history, recent_window=10):
 
     conversation_hash = _hash_text(conversation_text)
 
-    with _memory_cache_lock:
+    with _bounded_memory_lock():
         if conversation_hash in _memory_cache:
             return _memory_cache[conversation_hash]
 

@@ -1,7 +1,7 @@
-import json
 import logging
 
 from agent.state import empty_collaboration_notes
+from agent.output_schemas import ModelOutputError, log_validation_failure, parse_collaboration_output
 from utils.llm_client import LLMClientError, chat_with_deepseek
 from utils.observability import log_event
 
@@ -90,7 +90,7 @@ Rules:
         content = chat_with_deepseek(
             prompt,
             operation="collaboration",
-        ).strip()
+        )
 
     except LLMClientError as exc:
         log_event(
@@ -99,63 +99,25 @@ Rules:
             "collaboration_failed",
             error_type=type(exc).__name__,
         )
+        log_event(logger, logging.WARNING, 'collaboration_fallback', reason='model_unavailable',
+                  error_type=type(exc).__name__)
         return build_failed_collaboration_notes(
             "\n\n".join(answers),
             "The collaboration review is unavailable. Please try again later."
         )
 
     try:
-        collaboration = json.loads(content)
-
-    except json.JSONDecodeError:
-        collaboration = {
-            "answer": content,
-            "issues": [],
-            "missing_information": [],
-            "recommendations": [
-                "The collaboration response was not valid JSON."
-            ],
-            "needs_revision": False,
-            "next_steps": []
-        }
-
-    if not isinstance(collaboration, dict):
-        collaboration = {
-            "answer": content,
-            "issues": [],
-            "missing_information": [],
-            "recommendations": [
-                "The collaboration response was not a JSON object."
-            ],
-            "needs_revision": False,
-            "next_steps": []
-        }
-
-    allowed_next_steps = {
-        "qa",
-        "source",
-        "summary",
-        "keyword",
-        "compare"
-    }
-
-    next_steps = [
-        step for step in collaboration.get("next_steps", [])
-        if step in allowed_next_steps and step not in steps
-    ]
-
-    needs_revision = bool(
-        collaboration.get("needs_revision", False)
-        and next_steps
-    )
+        collaboration = parse_collaboration_output(content, steps)
+    except ModelOutputError as exc:
+        log_validation_failure('collaboration', exc)
+        log_event(logger, logging.WARNING, 'collaboration_fallback', reason=exc.reason)
+        return build_failed_collaboration_notes(
+            '\n\n'.join(answers),
+            'The collaboration response was invalid. Existing specialist results were retained.',
+        )
 
     return {
         "agent": "Collaboration Agent",
         "status": "success",
-        "answer": collaboration.get("answer", ""),
-        "issues": collaboration.get("issues", []),
-        "missing_information": collaboration.get("missing_information", []),
-        "recommendations": collaboration.get("recommendations", []),
-        "needs_revision": needs_revision,
-        "next_steps": next_steps
+        **collaboration,
     }

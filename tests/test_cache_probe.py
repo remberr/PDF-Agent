@@ -14,6 +14,30 @@ from evaluation.cache_probe import run_probe
 
 
 class CacheProbeTests(unittest.TestCase):
+    def test_shared_budget_stops_probe_without_fabricating_a_second_call(self):
+        from utils.llm_budget import BudgetSettings, RequestBudget
+        from utils.observability import new_usage_tracker
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / 'unit.pdf'
+            pdf.write_bytes(b'fixture')
+            output = Path(directory) / 'nested' / 'report.json'
+            client = Mock()
+            client.with_options.return_value = client
+            client.chat.completions.create.return_value = SimpleNamespace(model='deepseek-flash', usage={
+                'prompt_tokens': 10, 'completion_tokens': 2, 'prompt_cache_hit_tokens': 0})
+            docs = [Document(page_content='text', metadata={'source': 'unit.pdf', 'page': 0})]
+            tracker = new_usage_tracker(RequestBudget(BudgetSettings(max_calls=1)))
+            with patch('evaluation.cache_probe.parse_pdf_documents', return_value=docs), \
+                    patch('evaluation.cache_probe.get_deepseek_client', return_value=client), \
+                    patch('evaluation.cache_probe.new_usage_tracker', return_value=tracker), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                report = run_probe(pdf, page=1, delay_seconds=0, output=output, allow_paid_api=True)
+            self.assertEqual(len(report['calls']), 1)
+            self.assertEqual(report['summary']['llm_calls'], 1)
+            self.assertEqual(report['blocked'], 'LLMBudgetExceeded')
+            self.assertEqual(json.loads(output.read_text())['budget']['stop_reason'], 'calls')
+            self.assertEqual(client.chat.completions.create.call_count, 1)
+
     def test_paid_guard_runs_before_pdf_or_client_access(self):
         with patch('evaluation.cache_probe.parse_pdf_documents') as pdf, patch('evaluation.cache_probe.get_deepseek_client') as api:
             with self.assertRaisesRegex(ValueError, 'allow-paid-api'):

@@ -21,7 +21,7 @@ def response(text):
 class EvaluationUsageTests(unittest.TestCase):
     def run_case(self, directory, text, judge=True):
         path = Path(directory) / 'report.json'
-        args = build_parser().parse_args(['--mode', 'live', '--case', 'source-citations', '--output', str(path)] + (['--llm-judge'] if judge else []))
+        args = build_parser().parse_args(['--mode', 'live', '--case', 'source-citations', '--output', str(path)] + (['--llm-judge', '--allow-paid-api'] if judge else []))
         client = Mock()
         client.chat.completions.create.return_value = response(text)
         with patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'test-only'}), patch('utils.llm_client.get_deepseek_client', return_value=client), contextlib.redirect_stdout(io.StringIO()):
@@ -81,7 +81,7 @@ class EvaluationUsageTests(unittest.TestCase):
     def test_parallel_specialists_and_judge_remain_separate(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)/'report.json'
-            args = build_parser().parse_args(['--mode','live','--case','compare-reports','--llm-judge','--output',str(output)])
+            args = build_parser().parse_args(['--mode','live','--case','compare-reports','--llm-judge','--allow-paid-api','--output',str(output)])
             client = Mock()
             def complete(**kwargs):
                 text = kwargs['messages'][0]['content']

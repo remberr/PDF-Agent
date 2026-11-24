@@ -145,7 +145,13 @@ class StructuredLoggingTests(unittest.TestCase):
             session,
             "What is the result?",
             "client-request-1",
+            unittest.mock.ANY,
         )
+        from utils.llm_budget import RequestBudget, LLMBudgetExceeded
+        budget = mock_ask_pdf_agent.call_args.args[3]
+        self.assertIsInstance(budget, RequestBudget)
+        with self.assertRaises(LLMBudgetExceeded):
+            budget.check()  # HTTP completion closes the very budget passed to the Agent.
 
 
 class LLMClientUsageTests(unittest.TestCase):

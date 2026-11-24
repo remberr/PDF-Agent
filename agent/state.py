@@ -1,4 +1,7 @@
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, Literal, TypedDict
+
+
+SpecialistStep = Literal['qa', 'source', 'summary', 'keyword', 'compare']
 
 
 class CollaborationNotes(TypedDict):
@@ -24,7 +27,7 @@ class CollaborationNotes(TypedDict):
     needs_revision: bool
 
     # Specialist steps requested for lightweight revision
-    next_steps: List[str]
+    next_steps: List[SpecialistStep]
 
 
 def empty_collaboration_notes() -> CollaborationNotes:
@@ -49,13 +52,13 @@ class AgentState(TypedDict):
     question: str
 
     # Planned agent steps
-    steps: List[str]
+    steps: List[SpecialistStep]
 
     # Current executing step
     current_step: str
 
     # Specialist steps completed in the current workflow
-    completed_steps: List[str]
+    completed_steps: List[SpecialistStep]
 
     # Output from specific agents
     answers: List[str]

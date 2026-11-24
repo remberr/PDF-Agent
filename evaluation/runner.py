@@ -10,7 +10,7 @@ from time import perf_counter
 from langchain_core.documents import Document
 
 from agent.graph_agent import build_pdf_agent_graph
-from agent.llm_planner import plan_steps_fast, plan_steps_with_llm
+from agent.llm_planner import plan_steps_fast
 from agent.state import create_initial_agent_state
 from app.services.agent_service import serialize_sources
 from evaluation.metrics import evaluate_output, summarize_results
@@ -18,6 +18,7 @@ from evaluation.judge import judge_output as _judge_output
 from evaluation.real_pdf import DEFAULT_REAL_DATASET, DEFAULT_MANIFEST, RealPDFCorpus
 from evaluation.usage import merge_usage
 from utils.llm_client import get_deepseek_model
+from utils.llm_budget import llm_access
 from utils.observability import new_usage_tracker, observability_context
 
 
@@ -58,7 +59,9 @@ def _build_documents(case):
 
 
 def _run_routing_case(case):
-    steps = plan_steps_with_llm(case["question"])
+    steps = plan_steps_fast(case['question'])
+    if steps is None:
+        raise ValueError('Ambiguous routing case; use explicitly authorized live evaluation.')
     output = {
         "answer": "",
         "steps": steps,
@@ -191,8 +194,8 @@ def run(args):
         # expected routes in reference annotations.
         requires_llm = args.llm_judge or any(plan_steps_fast(case['question']) != ['source'] for case in cases)
         if args.mode in ('live', 'real-pdf') and requires_llm:
-            if args.mode == 'real-pdf' and not args.allow_paid_api:
-                raise ValueError('Real PDF generation/Judge requires --allow-paid-api. Use --validate-only or --retrieval-only for offline checks.')
+            if not args.allow_paid_api:
+                raise ValueError('Live/real PDF generation/Judge requires --allow-paid-api. Use routing, Source-only, --validate-only or --retrieval-only for offline checks.')
             if not os.getenv('DEEPSEEK_API_KEY'):
                 raise ValueError('DEEPSEEK_API_KEY is required for the selected generation/Judge cases.')
         graph = build_pdf_agent_graph() if args.mode != 'routing' else None
@@ -205,12 +208,14 @@ def run(args):
             output = {'answer': '', 'steps': [], 'sources': [], 'revision_count': 0}
             agent_error = None
             started = perf_counter()
-            with observability_context(session_id=f"evaluation:{case['id']}:agent", usage_tracker=agent_tracker):
+            with observability_context(session_id=f"evaluation:{case['id']}:agent", usage_tracker=agent_tracker), \
+                    llm_access(args.allow_paid_api and args.mode != 'routing'):
                 try:
                     if args.mode == 'routing':
                         output = _run_routing_case(case)
                     else:
                         output = _run_live_case(case, graph, vectorstore, case.get('pdf_files'))
+                    agent_tracker.budget.check()
                 except Exception as exc:
                     agent_error = f'{type(exc).__name__}: {exc}'
             elapsed = round((perf_counter() - started) * 1000, 2)
@@ -221,6 +226,7 @@ def run(args):
                 'expected_steps': case.get('expected_steps', []), 'actual_steps': output['steps'],
                 'agent_status': 'failed' if agent_error else 'completed',
                 'agent_usage': agent_usage, 'usage': agent_usage,
+                'agent_budget': agent_tracker.budget.summary(),
             }
             if agent_error:
                 result['agent_error'] = agent_error
@@ -237,7 +243,8 @@ def run(args):
             result['judge_status'] = 'not_requested'
             if args.llm_judge and not agent_error:
                 started = perf_counter()
-                with observability_context(session_id=f"evaluation:{case['id']}:judge", usage_tracker=judge_tracker):
+                with observability_context(session_id=f"evaluation:{case['id']}:judge", usage_tracker=judge_tracker), \
+                        llm_access(args.allow_paid_api):
                     try:
                         result['llm_judge'] = _judge_output(case, output)
                         result['judge_status'] = 'succeeded'
@@ -250,6 +257,7 @@ def run(args):
             elif args.llm_judge:
                 result['judge_status'] = 'skipped_agent_error'
             result['judge_usage'] = judge_tracker.summary() | {'elapsed_ms': judge_elapsed}
+            result['judge_budget'] = judge_tracker.budget.summary()
             result['total_usage'] = merge_usage([agent_usage, result['judge_usage']])
             results.append(result)
 
@@ -294,7 +302,7 @@ def build_parser():
     checks = parser.add_mutually_exclusive_group()
     checks.add_argument("--validate-only", action="store_true", help="Validate PDF hashes/pages/evidence, no embeddings or LLM.")
     checks.add_argument("--retrieval-only", action="store_true", help="Real embeddings/pgvector retrieval, no generation or Judge.")
-    parser.add_argument("--allow-paid-api", action="store_true", help="Explicitly enable real PDF paid generation/Judge.")
+    parser.add_argument("--allow-paid-api", action="store_true", help="Explicit authorization for live/real-pdf generation or Judge; routing never calls LLMs.")
     parser.add_argument("--case", action="append", help="Run one case ID.")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--output", type=Path)

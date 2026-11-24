@@ -1,7 +1,7 @@
 <!-- 本地进行中迁移状态以 LOCAL_STORAGE.md / TASKS.md 为准，未发布。 -->
 # 系统架构与当前边界
 
-更新时间：2026-11-16 18:58（Asia/Shanghai）。依据代码基线 `4d4e55b` 及本地 T02a 异常披露修复；描述现状，不表示在线实例已重新验证或发布。改造目标与状态见 [路线图](../plans/ROADMAP.md) 和 [任务清单](../plans/TASKS.md)。
+更新时间：2026-11-24（Asia/Shanghai，T01/T03及T09a结构边界同步）。描述本地实现，不表示在线实例已重新验证或发布。改造目标与状态见 [路线图](../plans/ROADMAP.md) 和 [任务清单](../plans/TASKS.md)；其他历史文档收敛仍由 T13a 跟踪。
 
 ## 1. 模块化单体
 
@@ -33,16 +33,18 @@ flowchart TD
 
 [routes.py](../app/api/routes.py) 提供 `/health`、创建/读取/删除 `/sessions`、上传 `/sessions/{session_id}/pdfs`、普通 `/ask` 与 `/ask/stream`。精确请求响应以 [schemas](../app/schemas/requests.py)、[响应模型](../app/schemas/responses.py) 和运行时 `/openapi.json` 为准，本文不复制字段表。
 
-上传路径见 [pdf_service.py](../app/services/pdf_service.py) 的 `load_pdf_into_session`：读取文件全部字节 → 临时文件 → `parse_pdf_documents` → `split_documents` → BGE-M3 编码 → 同事务写入文档、Chunk 和会话页数 → finally 删除临时文件。相同文件名会跳过；`document_count` 累加 PDF 页级 Document 数量，不是 chunk 数量。多文件上传逐个提交，后续文件失败不能回滚之前的成功项。
+上传路径见 [input_limits.py](../app/input_limits.py) 与 [pdf_service.py](../app/services/pdf_service.py)：每进程请求准入、请求体字节/空闲/累计读取期限 → 全批文件名/字节预检 → 单个工作线程分块复制到临时文件、页数预检、逐页文本限额、分块限额 → BGE-M3 编码 → 同事务写入文档、Chunk 和会话页数 → 删除临时文件并释放额度。上传路由通过工作线程读取会话，不阻塞事件循环。问答 JSON/SSE 共享有限请求额度；问题去首尾空白并校验长度。阈值和错误语义见 [开发文档](DEVELOPMENT.md#input-limits)。
 
-- 当前仅按文件名后缀检查 PDF；问题仅有非空最小长度校验。
-- 未实现应用层认证/所有权、请求限速、PDF 字节/页/chunk 限额及统一工作流费用预算；CORS 不是权限控制。上游平台是否另有限制待验证。
-- 解析、Embedding 和入库在工作线程执行；模型计算不占数据库连接。上传仍一次读取全部字节，资源限额未解决。
+相同文件名会跳过；`document_count` 累加 PDF 页级 Document 数量，不是 chunk 数量。全批名称/字节预检失败不写入；随后逐文件提交，后续解析失败不能回滚之前的成功项。取消复制/解析/编码时等待运行线程退出，不提前删临时文件或释放上传额度；取消检查不能撤销已开始的提交。原生解析没有硬资源沙箱，额度按进程独立，不能代替 T03 成本预算、T04 访问控制和 T06 完整终态/取消语义。
+
+- 输入限额与有限并发已由T01实现，请求级LLM预算由T03实现；尚无用户身份级速率或存储配额，CORS不是权限控制。
+- 未实现应用层认证/所有权；资源和费用保护不能代替访问方案。上游平台是否另有限制待验证。
+- 解析、Embedding和入库在工作线程执行，模型计算不占数据库连接；复制分块计量。单页解压和原生计算仍无硬资源沙箱。
 - 原始 PDF 临时文件被删除，但索引包含文本片段，PostgreSQL/浏览器也保留会话数据，不能称为“处理后不留数据”。
 
 ## 3. Agent 状态与执行
 
-[agent/state.py](../agent/state.py) 定义 `AgentState` 与初值，包括问题、steps/completed_steps、答案、检索结果、协作建议、revision_count、timings、vectorstore、文件名及历史。部分字段仍是 `Any`，TypedDict 不提供运行时模型输出校验。
+[agent/state.py](../agent/state.py)定义AgentState与初值，步骤名使用五种Specialist的Literal类型；TypedDict本身仍不做运行时校验。[output_schemas.py](../agent/output_schemas.py)在Planner/Collaboration的模型入口使用严格Pydantic模型，输出仍转换为原有list/dict，不向Graph状态塞入Pydantic实例。
 
 [graph_agent.py](../agent/graph_agent.py) 的主路径：
 
@@ -51,9 +53,13 @@ flowchart TD
 3. 单 Specialist 走 Reviewer 快路径，Source 直接由检索结果生成引用，不需要模型。其他生成步骤使用共享 LLM 客户端。
 4. 多 Specialist 进入 Collaboration；revision controller 最多一次增加尚未执行的步骤，并非任意次数重试原步骤。之后 Reviewer 合成最终回答。
 
-编译后的 Graph 在 [agent_service.py](../app/services/agent_service.py) 缓存，单次请求创建状态与 UsageTracker。Graph 未配置持久化 checkpoint；PostgreSQL 的历史持久化不等于工作流断点恢复。Specialist 失败使用固定安全提示，Reviewer 异常会拼接已有结果；部分失败状态在汇总时仍会丢失。LLM 返回结构仍需更严格验证。
+编译后的Graph在[agent_service.py](../app/services/agent_service.py)缓存，单次请求创建状态与UsageTracker。Graph未配置持久化checkpoint；PostgreSQL历史持久化不等于工作流断点恢复。Specialist失败使用固定安全提示，Reviewer异常会拼接已有结果；部分失败状态在汇总时仍会丢失，这仍属于T06。
 
-普通回答和 SSE 共用 `iter_pdf_agent_events`。SSE 是 `progress` 与最终 `result` 事件，不是逐 Token 模型流。当前服务层另有下一节点推断逻辑；Graph 异常后仍可能保存错误文本并记录 completed；保存异常也可能中断流。客户端断线是否停止上游调用未验证，不能承诺取消后不再产生费用。
+T09a只校验实际控制JSON：Planner为非空且原始长度最多五项的合法步骤数组，不允许任务对象/执行参数；Collaboration七个字段全部必填，StrictBool、文本/列表上限、修订一致性和未执行步骤范围均校验。只做可审计的本地格式修复，不增加模型修复请求。非法结果整份拒绝：Planner记录日志后走原QA回退，Collaboration保留专业结果并返回failed/禁止修订，不再把原始非法响应标为成功。专业Agent、Reviewer、Memory的自然语言以及Judge已有评分边界不改。具体限制见[开发文档](DEVELOPMENT.md#model-output-validation)。
+
+T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用原ContextVar/copy_context传播到并行步骤；所有LLM派发经过[统一网关](../utils/llm_client.py)原子预留/结算。API断连信号传给同一预算，Streamlit和评估也按工作流建立作用域；Agent/Judge的用量与预算各自独立。截止或耗尽后停止新派发并复用既有失败progress/result，不改Graph拓扑。实际usage不含预留；配置、I/O超时与不可立即终止在途请求的限制见[开发文档](DEVELOPMENT.md#llm-budgets)。
+
+普通回答和SSE共用iter_pdf_agent_events；SSE是progress与最终result，不是逐Token流。服务层另有下一节点推断逻辑；Graph异常后仍可能保存错误文本并记录completed，保存异常也可能中断流。T03已用Mock验证断连阻止新派发；在途请求是否立即终止未验证，不能承诺取消后不再产生费用。T09a的节点级failed/fallback不等于整体失败终态已统一；T06需在此基础上传播成功/降级/失败与保存失败，未在本轮实施。
 
 ## 4. 检索、引用与 Memory
 

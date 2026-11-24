@@ -13,6 +13,7 @@ from time import perf_counter
 from uuid import uuid4
 
 from utils.pricing import MODEL_ALIASES, MODEL_PRICING, PRICE_ENV_VARS, get_model_pricing, _is_peak_time
+from utils.llm_budget import RequestBudget
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
@@ -199,7 +200,8 @@ class UsageBucket:
 class UsageTracker:
     """Thread-safe request-level LLM usage accumulator."""
 
-    def __init__(self):
+    def __init__(self, budget=None):
+        self.budget = budget if budget is not None else RequestBudget()
         self._lock = Lock()
         self._total = UsageBucket()
         self._by_model = defaultdict(UsageBucket)
@@ -240,8 +242,12 @@ class UsageTracker:
             return total
 
 
-def new_usage_tracker():
-    return UsageTracker()
+def new_usage_tracker(budget=None):
+    return UsageTracker(budget)
+
+
+def get_active_usage_tracker():
+    return _usage_tracker_var.get()
 
 
 def empty_usage_summary():
@@ -327,21 +333,21 @@ def _cache_usage(payload):
     return hit, miss, None
 
 
-def _usage_error(payload):
-    """Require actual counters and a determinate cache split before pricing."""
+def _token_usage_error(payload):
+    """Token validity is independent of whether the cache split is available."""
     for key in ("prompt_tokens", "completion_tokens"):
         if type(payload.get(key)) is not int or payload[key] < 0:
             return f"Provider usage missing or invalid: {key}."
     for key in ("total_tokens",):
         if key in payload and (type(payload[key]) is not int or payload[key] < 0):
             return f"Invalid provider token counter: {key}."
-    input_tokens = payload["prompt_tokens"]
-    cache_error = _cache_usage(payload)[2]
-    if cache_error:
-        return cache_error
-    if "total_tokens" in payload and payload["total_tokens"] != input_tokens + payload["completion_tokens"]:
+    if "total_tokens" in payload and payload["total_tokens"] != payload['prompt_tokens'] + payload["completion_tokens"]:
         return "Provider total tokens do not sum to input/output tokens."
     return None
+
+
+def _usage_error(payload):
+    return _token_usage_error(payload) or _cache_usage(payload)[2]
 
 
 def record_llm_usage(model, operation, usage, duration_ms, at=None):
@@ -396,6 +402,7 @@ def record_llm_usage(model, operation, usage, duration_ms, at=None):
         "pricing_tier": pricing["tier"],
         "cost_estimate_available": cost_available,
         "usage_available": usage_error is None,
+        "token_usage_available": _token_usage_error(payload) is None,
         "duration_ms": round(duration_ms, 2),
     }
 
@@ -427,9 +434,20 @@ class RequestContextMiddleware:
             candidate if REQUEST_ID_PATTERN.fullmatch(candidate) else uuid4().hex
         )
         scope.setdefault("state", {})["request_id"] = request_id
+        path = scope.get('path', '').rstrip('/')
+        budget = None
+        if scope.get('method') == 'POST' and path.startswith('/sessions/') and path.endswith(('/ask', '/ask/stream')):
+            budget = RequestBudget()
+            scope['state']['llm_budget'] = budget
         started_at = perf_counter()
         status_code = 500
         completed = False
+
+        async def receive_with_context():
+            message = await receive()
+            if budget is not None and message['type'] == 'http.disconnect':
+                budget.cancel('client_disconnected')
+            return message
 
         async def send_with_context(message):
             nonlocal status_code, completed
@@ -476,7 +494,7 @@ class RequestContextMiddleware:
                 path=scope["path"],
             )
             try:
-                await self.app(scope, receive, send_with_context)
+                await self.app(scope, receive_with_context, send_with_context)
             except Exception:
                 log_event(
                     self.logger,
@@ -491,3 +509,6 @@ class RequestContextMiddleware:
                     ),
                 )
                 raise
+            finally:
+                if budget is not None:
+                    budget.cancel('request_closed')

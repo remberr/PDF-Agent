@@ -6,6 +6,7 @@ from langchain_community.document_loaders import PyPDFLoader
 
 from utils.text_splitter import split_documents
 from utils.vectorstore import create_vectorstore
+from utils.observability import new_usage_tracker, observability_context
 
 from agent.graph_agent import build_pdf_agent_graph
 from agent.state import create_initial_agent_state, empty_collaboration_notes
@@ -279,14 +280,17 @@ if question:
         pdf_agent_graph = build_pdf_agent_graph()
 
         try:
-            agent_result = pdf_agent_graph.invoke(
-                create_initial_agent_state(
-                    question,
-                    st.session_state.vectorstore,
-                    st.session_state.messages,
-                    st.session_state.loaded_pdfs
+            tracker = new_usage_tracker()
+            with observability_context(usage_tracker=tracker):
+                agent_result = pdf_agent_graph.invoke(
+                    create_initial_agent_state(
+                        question,
+                        st.session_state.vectorstore,
+                        st.session_state.messages,
+                        st.session_state.loaded_pdfs
+                    )
                 )
-            )
+                tracker.budget.check()
 
         except Exception as exc:
             agent_result = {

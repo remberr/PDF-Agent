@@ -1,3 +1,4 @@
+import asyncio
 from typing import List
 
 from fastapi import (
@@ -20,7 +21,8 @@ from app.schemas.responses import (
     UploadResponse,
 )
 from app.services.agent_service import ask_pdf_agent, stream_pdf_agent
-from app.services.pdf_service import load_pdf_into_session
+from app.services.pdf_service import load_pdf_into_session, validate_uploads
+from app.input_limits import get_upload_admission
 from app.services.session_store import create_session, delete_session, get_session
 
 
@@ -73,24 +75,18 @@ async def upload_pdfs(
     session_id: str,
     files: List[UploadFile] = File(...)
 ):
-    session = get_session(session_id)
+    with get_upload_admission().slot():
+        session = await asyncio.to_thread(get_session, session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found.")
 
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found.")
-
-    uploaded_files = []
-
-    for uploaded_file in files:
-        if not uploaded_file.filename.lower().endswith(".pdf"):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Only PDF files are supported: {uploaded_file.filename}"
-            )
-
-        loaded = await load_pdf_into_session(session, uploaded_file)
-
-        if loaded:
-            uploaded_files.append(uploaded_file.filename)
+        # Check every filename and exact byte count before the first commit.
+        await validate_uploads(files)
+        uploaded_files = []
+        for uploaded_file in files:
+            loaded = await load_pdf_into_session(session, uploaded_file)
+            if loaded:
+                uploaded_files.append(uploaded_file.filename)
 
     return {
         "session_id": session_id,
@@ -121,6 +117,7 @@ def ask_question(
         session,
         request.question,
         http_request.state.request_id,
+        getattr(http_request.state, 'llm_budget', None),
     )
 
 
@@ -146,6 +143,7 @@ def stream_question(
             session,
             request.question,
             http_request.state.request_id,
+            getattr(http_request.state, 'llm_budget', None),
         ),
         media_type="text/event-stream",
         headers={

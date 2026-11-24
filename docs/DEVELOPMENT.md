@@ -23,6 +23,54 @@ python -m pip install -r requirements.api.txt
 
 在本地从 [.env.example](../.env.example) 创建 `.env`，已有文件时只补缺失项，不覆盖。只有实际模型生成才需要有效 `DEEPSEEK_API_KEY`；普通离线测试见测试文档。不要把密钥放进前端变量或终端共享记录。模型默认值、价格覆盖说明以该示例和 [llm_client.py](../utils/llm_client.py)、[pricing.py](../utils/pricing.py) 为准。
 
+<a id="input-limits"></a>
+## 输入与资源限制（T01，2026-11-24）
+
+保护阈值由 [`.env.example`](../.env.example) 的 `PDF_AGENT_MAX_*` 配置，均须为正整数，API 重启后生效。默认：问题去首尾空白后最多 8000 字符；每批最多 5 个 PDF、累计 40 MiB，每文件最多 20 MiB、200 页、100 万提取字符和 2000 Chunk；文件名最多 255 字符。上传/索引每进程最多 1 个请求，普通问答和 SSE 共用每进程 2 个请求额度。超额立即返回 429（含 `Retry-After`），不在应用层排队。容器须显式传入这些环境变量，例如使用本地 Compose override 的 `environment`；仅编辑宿主 `.env` 不保证未声明的变量被 Compose 转发。
+
+请求体在 JSON 缓冲或 multipart 暂存前计量：上传为累计字节限额加 64 KiB multipart 余量；问答为字符限额 × 12 加 4096 字节 JSON 余量，兼容非 BMP 字符的 JSON 代理对转义。即使省略或伪报 Content-Length，实际接收字节仍受限。读取请求体默认连续空闲最多 15 秒、累计最多 120 秒，超时返回 408 并释放准入额度；这不是解析/生成总超时。问题校验失败返回 422，字节/文件数/页/文本/Chunk 超限返回 413；空白文本 PDF、损坏/加密/空文件返回安全的 400。
+
+所有文件的名称及字节数先预检，失败不写入文档或向量（会话读取仍可能刷新活动时间）。之后仍逐文件解析、编码和原子提交；第二份 PDF 解析失败时，第一份成功文件保留，可读取会话确认后重传。重复文件名仍跳过。这些限制不改变响应字段或 SSE 事件。
+
+阈值是可调整的保护默认值，不是压测容量结论。多进程/副本额度相加；尚无会话累计存储配额或身份级速率限制。解析器单页解压、原生编码并没有硬内存/CPU沙箱；取消时等待运行线程结束，在阶段边界停止后续工作，不能回滚已开始的数据库提交。LLM预算见下一节；长时间解析、完整SSE断线恢复和持久化终态仍需T06等补强。可信本地评估不经过HTTP上传限额，禁止对不可信PDF无界运行。
+
+<a id="llm-budgets"></a>
+## LLM 预算、重试与离线门禁（T03，2026-11-24）
+
+配置入口为 [`.env.example`](../.env.example) 的 `LLM_*` 项，按请求加载。默认每请求最多12次SDK尝试（包括应用重试）、12万预留/已结算输入Token、2.4万输出Token；单调用输出最多4096。默认USD费用预估额度0.50，使用已有定价模块按调用开始时间、Cache Hit/Miss较高的输入单价预留，USD/CNY展示仍独立计算。未知模型/价格或日历时，启用的费用额度会在派发前拒绝调用；仅将费用额度设为空字符串可显式关闭该项，其他上限仍有效。无效配置不会静默禁用保护。
+
+Planner、Memory摘要、所有Specialist、Collaboration、最多一次补充步骤及Reviewer共用绑定到UsageTracker的线程安全预算。调用前按UTF-8字节启发式和输出上限预留，并行竞争也不能绕过预留；输入估算不是供应商Tokenizer。返回后根据有效Token/价格结算，缺缓存分项时可结算已知Token而费用仍未知；缺准确用量的部分继续保留预留。原usage/by_model/by_operation仅累计实际SDK尝试返回的用量，不加入预留数、不重复记费。日志和评估报告的budget字段是控制数据，不能当作实际账单；供应商计数超出预留时保留真实计数并停止后续调用，不裁剪成“通过”。
+
+请求LLM截止默认180秒，单次SDK超时最多60秒并裁剪到剩余时间。截止覆盖新调用、重试、Memory锁等待及节点推进；SDK超时是传输I/O超时，不是整个进程/Graph的硬墙钟保证。原生检索、SDK在途I/O和数据库保存可能超过截止，无法安全强杀线程或撤销已经发送的供应商请求；迟到响应仍记录用量，但不作为正常成功继续。它不是账户级账单或跨请求配额。
+
+SDK自动重试固定为0。应用默认也不重试，可配置0–2次，仅连接/超时、HTTP408/409/429/5xx可重试；认证/参数错误、畸形回答不重试。每次重试重新竞争共享额度，等待计入截止，指数退避并受最大等待限制；过长的数字Retry-After不重试。失败且无用量仍为未知费用，不能当作免费。HTTP断连和生成器关闭会取消同一预算，阻止后续新调用/重试；在途请求不保证立即终止，断线后的完整保存/恢复仍属T06/T07。
+
+`llm_budget_reserved/settled/exhausted/cancelled/finished`、`llm_call_failed`与重试事件只记录额度、计数、固定原因、操作和错误类型，不记录Prompt、PDF正文、Key或原始供应商异常。API响应字段与SSE的progress/result类型保持不变，预算耗尽复用既有失败进度和安全结果。更细的失败/降级展示仍由T06处理。
+
+`PDF_AGENT_DISABLE_LLM_API=1`在真实客户端工厂阻止网络访问（即使已有客户端/Key），CI固定开启。仅`0`或`false`允许客户端访问，空值或无效值同样关闭。标准unittest包入口默认也开启，只有显式的付费测试opt-in才不强制该值；不在CI清除此保护。CLI的routing完全不用模型，歧义用例记失败；live/real-pdf生成及Judge统一要求`--allow-paid-api`，免费Source也在禁止LLM的上下文执行。缓存探针保留64输出Token/次、2–5次、零重试的原限制，同时使用统一预算与用量网关。运行命令见[测试文档](TESTING.md)，代码中的付费开关不是替代任务授权。
+
+<a id="model-output-validation"></a>
+## 模型控制输出校验（T09a，2026-11-24）
+
+运行时Schema位于[agent/output_schemas.py](../agent/output_schemas.py)，复用现有Pydantic；合法步骤名来自[agent/state.py](../agent/state.py)的SpecialistStep。没有新增依赖或改变API、SSE字段及Graph拓扑。
+
+| 调用路径 | 模型响应契约 | 本轮边界 |
+| --- | --- | --- |
+| Planner模型分支 | JSON步骤名数组 | qa/source/summary/keyword/compare；原始数组1–5项，禁止任务对象、执行参数及未知值；规则快路径不调用模型/解码器 |
+| Collaboration | 七字段JSON对象 | answer、issues、missing_information、recommendations、needs_revision、next_steps全部必填；额外字段拒绝，不默认伪造模型判断 |
+| QA/Summary/Keyword/Compare、Reviewer、Memory | 自然语言 | 保留原字符串契约，不强制JSON；各Agent外层字典由代码构造，非模型控制JSON；Source无LLM |
+| Evaluation Judge | 独立评分JSON | 保留其现有整数评分/列表检查，不在T09a重构 |
+
+控制JSON在解析前限制原始响应字符数：Planner 2048、Collaboration 32768。协作answer去首尾空白后为1–16000字符；三类诊断列表各至多20条，每条去首尾空白后为1–2048字符。needs_revision必须是真正布尔值，next_steps必须是最多五项的合法步骤数组；请求修订须有新步骤，不修订则数组必须为空，任何已执行步骤或混入非法步骤都使整份响应失败。全局最多一次补充仍由既有Graph控制器限制。
+
+安全本地修复仅包括首尾空白、开头单个BOM、完整且独占响应的json/无标签代码围栏、字符串首尾空白及步骤稳定去重。原始数组超限不会先去重来绕过限制；大小写/近形字不映射成合法Agent。重复对象键、NaN/Infinity常量、非法JSON/类型/枚举、缺字段、额外参数、空答案、异常长度或修订矛盾直接拒绝，不从说明文字中抽取子JSON，不修复尾逗号/单引号，不截短或部分保留非法计划。
+
+失败回退沿用既有契约：Planner返回QA规则回退并明确记录来源，不声称其是校验成功的模型计划；Collaboration使用原专业结果、status=failed、needs_revision=false、next_steps=[]，不把原始非法文本注入答案。没有新增LLM修复调用；原调用和已有网络重试仍由T03预算统计，预算拒绝/取消不会触发付费修复。
+
+model_output_repaired记录固定修复代码；model_output_validation_failed记录节点、固定原因和Pydantic错误代码，planner_fallback/collaboration_fallback记录确定性回退。日志不包含响应、问题、文档、原始ValidationError、错误位置键或输入值，避免恶意字段名也泄露内容。
+
+这些Schema校验类型和执行控制，不证明事实正确、引用受支持或完全防提示注入；自然语言空文本/质量与Memory容量仍由其他任务处理。严格七字段和长度上限尚未做付费模型遵循率验证。节点failed/fallback如何汇总为全局终态、断流恢复及保存失败仍是T06/T07；T09a不新增这些协议，也不自动开始T06。
+
 ## 运行和调试
 
 终端一（已激活 Python 环境）：

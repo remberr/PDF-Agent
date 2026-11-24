@@ -59,10 +59,12 @@ docker compose -f compose.vector.yaml --profile app up -d --build --wait
 ## 测试与评估
 
 ```sh
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -t . -v
 npm --prefix frontend test
 python -m evaluation.runner --mode routing
 ```
+
+同一请求共享LLM调用、Token预留、USD费用预估和截止预算，配置及限制见[开发文档](docs/DEVELOPMENT.md#llm-budgets)。SDK自动重试关闭，应用重试默认零次。CI和默认单元测试禁止供应商网络访问；live/real-pdf生成及Judge要求显式`--allow-paid-api`，routing始终不调用模型。预留不是实际账单，取消不能撤回已发出的请求。
 
 PostgreSQL 集成测试、离线恢复和真实 PDF 评估见[测试指南](docs/TESTING.md)。请使用独立测试库，并将 PDF 和生成的报告留在 Git 忽略目录。只做本地检索时，将 `DATABASE_URL` 指向已迁移的测试库，然后运行：
 

@@ -1,7 +1,12 @@
-import json
+import logging
 import re
 
+from agent.output_schemas import ModelOutputError, log_validation_failure, parse_planner_output
 from utils.llm_client import LLMClientError, chat_with_deepseek
+from utils.observability import log_event
+
+
+logger = logging.getLogger(__name__)
 
 
 INTENT_KEYWORDS = {
@@ -222,34 +227,16 @@ Rules:
         content = chat_with_deepseek(
             prompt,
             operation="planner",
-        ).strip()
+        )
 
-    except LLMClientError:
+    except LLMClientError as exc:
+        log_event(logger, logging.WARNING, 'planner_fallback', reason='model_unavailable',
+                  error_type=type(exc).__name__)
         return ["qa"]
 
     try:
-        steps = json.loads(content)
-
-    except json.JSONDecodeError:
-        steps = ["qa"]
-
-    if not isinstance(steps, list):
-        steps = ["qa"]
-
-    allowed_agents = {
-        "qa",
-        "source",
-        "summary",
-        "keyword",
-        "compare"
-    }
-
-    steps = [
-        step for step in steps
-        if step in allowed_agents
-    ]
-
-    if not steps:
-        steps = ["qa"]
-
-    return steps
+        return parse_planner_output(content)
+    except ModelOutputError as exc:
+        log_validation_failure('planner', exc)
+        log_event(logger, logging.WARNING, 'planner_fallback', reason=exc.reason)
+        return ['qa']

@@ -1,6 +1,15 @@
 # 改造任务清单
 
-更新时间：2026-11-16（Asia/Shanghai，pgvector规划修订）。任务状态的唯一文档来源；长期方向与里程碑见 [ROADMAP.md](ROADMAP.md)，当前实现见 [ARCHITECTURE.md](../docs/ARCHITECTURE.md)。需求分级、自动执行及确认边界统一见 [AGENTS.md](../AGENTS.md)。
+更新时间：2026-11-24（Asia/Shanghai，工程审计复核）。任务状态的唯一文档来源；长期方向与里程碑见 [ROADMAP.md](ROADMAP.md)，当前实现见 [ARCHITECTURE.md](../docs/ARCHITECTURE.md)。需求分级、自动执行及确认边界统一见 [AGENTS.md](../AGENTS.md)。
+
+## 当前入口（2026-11-24）
+
+[工程审计](AUDIT_2026-11-24.md)包含P0–P3、代码行号、风险、方案、依赖与验收。本文件保留11月16日历史过程；其中“仍是SQLite”等只代表当时快照，不覆盖当前实现。
+
+- T05、T15a–f 本地范围、T16a–f 已实现；本轮独立新PG库123项120通过/3跳过，不重复迁移。
+- T15e本地完成与Render残项分开，残项为T15e2；T15g生产切换未实施。
+- T01、T03与T09a已完成本地验收；T04（凭据/兼容方案待确认）/T02b、T06仍未实施。T06可在T09a基础上准备终态方案；后续T07、T05a、T10/T08/T09b、T11/T12、T15e2仍按依赖推进，不作为本轮授权。
+- 审计轮只交付规划；随后分别验收T01、T03、T09a，详见末尾独立实施记录。先前剩余风险及未执行验证保留；T09b与T06不随T09a通过自动完成。
 
 ## 任务记录约定
 
@@ -33,11 +42,12 @@
 ## 阶段 1：边界
 
 <a id="t01"></a>
-### T01 · P1 · 待实施：输入与资源限制
+### T01 · P1 · 已完成（DONE）：输入与资源限制
 
 - 范围：`app/schemas/requests.py`、`app/api/routes.py`、`app/services/pdf_service.py`；配置化问题长度、文件数/字节/页/chunk 限额，文件有效性校验；让耗时同步解析/索引不直接阻塞 async 路由，并约束并发。明确多文件部分成功语义。
 - 验收：无效/超限输入不进入后续高成本阶段；正常多 PDF 兼容；失败清理临时资源，返回稳定安全的错误。阈值以实际样本确定，不编造容量。
 - 回归：边界值、伪后缀/损坏/空 PDF、重复名、后续文件失败、并发负载下健康接口响应；现有会话/路由测试。
+- 实施与验收：2026-11-24，见本文末尾 T01 记录；配置与限制只维护在 [.env.example](../.env.example) 和 [开发文档](../docs/DEVELOPMENT.md#input-limits)。
 
 <a id="t02"></a>
 ### T02 · P1 · 进行中：错误与日志最少披露
@@ -64,22 +74,23 @@
 - 回归：访问日志、请求路径、跨会话、浏览器恢复/清理、异常与 usage；未实施，未宣称全链路脱敏完成。
 
 <a id="t03"></a>
-### T03 · P1 · 待实施：工作流预算与付费防护
+### T03 · P1 · 已完成（DONE）：工作流预算与付费防护
 
 - 范围：`utils/llm_client.py`、Memory、Graph/服务层及 `evaluation/runner.py`；明确 SDK 重试与整体调用/Token/耗时预算，统一 live/real-pdf/Judge 的付费选择语义。
 - 验收：预算耗尽不再发起新调用，保留已发生用量/未知成本；重试有界；默认测试与未授权 CLI 不调用供应商。保留 Source/Planner/Reviewer 快路径和报告兼容性，说明新 CLI 约束。
 - 回归：超时、重试、预算边界、Judge 失败、模型别名、usage 隔离；使用 mock 验证调用次数，不依赖付费测失败。
+- 实施与验收：2026-11-24，见末尾T03记录；配置与预留/实际用量、I/O截止限制见[开发文档](../docs/DEVELOPMENT.md#llm-budgets)。不将其视为硬墙钟、真实账单或跨请求费用上限。
 
 <a id="t04"></a>
-### T04 · P1 · 待实施：会话访问与可信索引边界
+### T04 · P1 · 待实施：会话访问与凭据边界（旧索引仅离线工具）
 
-- 范围：会话 API、存储路径、必要前端凭据传递；先明确公开匿名 demo 的访问方案与旧会话兼容策略，再实施最小保护。验证读取索引路径的可信边界。
+- 范围：会话 API、必要前端凭据传递；先明确公开匿名 demo 的访问方案与旧会话兼容策略，再实施最小保护。旧索引路径仅属于离线迁移工具边界，不再作为活动 RAG 路径；工具校验另见 T15d1。
 - 验收：访问和删除遵循确认后的凭据契约，拒绝不匹配的访问；持久化路径在可信根内；不反序列化外来索引。不默认建立完整账号系统，不把 CORS 或 UUID 难猜当所有权验证。
 - 回归：合法旧/新客户端、无效凭据、路径边界、删除和恢复；使用隔离测试数据。
 
 ## 阶段 2：一致性与生命周期
 
-2026-11-16 pgvector规划修订：当前仍是SQLite/MiniLM，T15a以外的数据库任务未完成。用户目标已改为BGE-M3 + pgvector；依赖按[T16](#t16)衔接。以下调整只更新待办范围，不表示实施或生产授权。
+历史规划快照（2026-11-16，实施前）：当时仍是SQLite/MiniLM，T15a以外的数据库任务未完成；用户目标改为BGE-M3 + pgvector，依赖按[T16](#t16)衔接。当前存储迁移已经完成，见顶部入口和后续验收记录；本段不作为当前待办状态。
 
 <a id="t05"></a>
 ### T05 · P1 · 已完成：关系数据库/向量数据并发与恢复
@@ -113,7 +124,7 @@
 - 回归：本地真实 PDF 检索、跨页/跨文档/无答案/证据不足用例、受控引用测试；付费生成与 Judge 需另行授权，未运行明确标记。
 
 <a id="t09"></a>
-### T09 · P2 · 待实施：模型结构与 Memory 边界
+### T09 · P1 · 进行中：模型结构与 Memory 边界（T09a已完成、T09b待实施）
 
 - 范围：Planner/Collaboration 输出校验、`AgentState` 边界、`utils/memory.py`；校验步骤和内部字段，规范去重；限制摘要缓存和历史输入，减少锁内模型 I/O。
 - 验收：非法 JSON/步骤/类型走确定的有界回退；单次补充上限不变；Memory 不跨会话串用，有明确容量/淘汰策略；保留既有快路径与回答上下文。
@@ -136,7 +147,7 @@
 - 回归：完整离线后端、routing、前端 test/build、Docker 构建与运行冒烟；CI 不开启付费请求。
 
 <a id="t12"></a>
-### T12 · P2 · 待实施：运维与恢复证据
+### T12 · P1 · 待实施：运维与恢复证据（T12a P1、T12b P2）
 
 - 依赖：T05、T15d、T16d、T15f。T15/T16负责一次性迁移/回滚，本项负责持续运维，不重复实现迁移工具。
 - 范围：最终PostgreSQL关系数据+pgvector统一备份，模型revision/制品单独保留；迁移期SQLite/FAISS快照仍成套保留。明确liveness/readiness、指标和保留策略。
@@ -236,9 +247,9 @@
 ## pgvector 专项（2026-11-16，本地实施已授权）
 
 <a id="t16"></a>
-### T16 · P1 · 进行中：FAISS → PostgreSQL pgvector
+### T16 · P1 · 已完成（本地范围）：FAISS → PostgreSQL pgvector
 
-- 依据：用户选择BGE-M3 + pgvector并以Render上线为最终目标；实际仍是SQLite/MiniLM，证据、技术方案和风险见[专项设计](../docs/PGVECTOR_MIGRATION.md)。本轮只做规划，不运行迁移或部署。
+- 历史规划依据（实施前）：用户选择BGE-M3 + pgvector，当时仍是SQLite/MiniLM，见[专项设计](../docs/PGVECTOR_MIGRATION.md)。后续本地实施已完成，验收见下文；Render目标保留在T15e2/T15g，不包含在本项完成范围。
 - 三阶段：①pgvector迁移：T16a–d，复用未完成的T15b/c/d和T05；②本地验证：T16e、T15e配置/CI准备、T15f联合演练、T16f移除runtime FAISS；③Render部署：复用T15e配置与T15g另行批准的上线，不重复建任务。
 - 顺序：T16a → T15b；T16b依赖T16a/T15b，T15c依赖T15b；两者完成后T16c → T05 → T15d → T16d → T16e → T15e → T15f → T16f → 经批准T15g。T15a不重做。
 - 总体验收：关系数据不丢、Chunk/向量/metadata/会话对应全量对账；五Agent、RAG/Memory/API/SSE兼容；本地检索/容量/构建和新写入后回滚有证据；runtime及真实评估不再依赖FAISS，离线迁移制品与旧索引保留。上线独立验收。
@@ -352,3 +363,142 @@
 
 - T16f 最终验收通过：无 FAISS Linux 镜像内 3 份 PDF / 30 条检索 / 90 条证据引文，校验通过，平均预期页召回 0.606663，逐题召回与宿主机完全一致。容器评估使用 2 个推理线程，向量范围构建约 236 秒；仅检索，没有生成/Judge。报告 .evaluation-local/container-rag/real-pdf.json。三文档 PDF/pgvector 专项用例单独通过；前端 6/6，Docker 前端构建阶段成功（缓存）。报告、日志和凭据均在 Git 忽略目录。
 - 最终隔离环境：API 和 PostgreSQL healthy；一次性 Alembic 容器退出 0；验收库会话、文档、向量、消息计数均为 0（只清理本轮夹具）。默认 Compose 已要求显式提供已迁移的 DATABASE_URL，避免缺配置时进入重启循环；隔离 Compose 的端口可独立配置。历史库/快照和 Render 未操作。
+
+
+## 2026-11-24 后续开发队列
+
+逐项文件位置、风险和方案统一见[审计 F01–F17](AUDIT_2026-11-24.md#4-风险清单与任务映射)。沿用既有编号，下表补齐当前任务的依赖与验收；本轮未开始实施。P3 表示低风险维护。
+
+| 原任务 | 优先级/状态 | 当前范围、依赖与验收 |
+| --- | --- | --- |
+| T01 | P1 / 已完成 | F01；问题trim/max、全批文件/字节预检、页/文本/Chunk上限、请求体计量/读取期限、上传与问答有限准入、异步SQL读取及取消清理已验收。参数见开发文档；保持逐文件提交，原生解析硬沙箱/总费用预算不在本项完成范围 |
+| T02b | P1 / 待实施 | F02/F16；依赖T04凭据设计。路径/session_id、Uvicorn/第三方日志、浏览器持久化、PDF外发/保留说明。合成标记不泄露，request_id仍可关联；已完成T02a不重做 |
+| T03 | P1 / 已完成 | F03；复用UsageTracker/ContextVar，共享原子调用/Token/费用预留、请求截止、有限应用重试及取消；SDK零重试，routing零LLM、live/real-pdf/Judge统一opt-in，CI/默认测试网络关闭。178项本地回归及CLI/前端通过，原生在途I/O和硬账单限制见验收记录 |
+| T04 | P1 / 待实施（设计待确认） | F02；先定匿名凭据/共享/兼容期，不默认账号系统。所有CRUD、上传和JSON/SSE统一校验；独立客户端越权失败且不触发模型 |
+| T06 | P1 / 待实施 | F04；T09a结构校验，T03预算失败协同。成功/降级/失败/保存失败明确，保留协议字段；若改公开终态先确认。覆盖部分失败、断流、DB失败和usage |
+| T07 | P1 / 待实施 | F05；API错误/终态依赖T06，网络恢复子项可先做。404/500/断网区别处理；响应校验、分片CRLF/EOF、AbortSignal、reader释放；不清空离线历史、不自动重发收费请求 |
+| T08 | P1 / 待实施 | F10；依赖T10最小复核集，遵守T01/T03限制。逐文档与问题覆盖、无答案行为、引用；预登记指标并报告逐题退化，不盲目放大k |
+| T10 | P2 / 待实施 | F10；无前置。人工复核跨页/跨文档/无答案最小集并留依据，其余仍provisional。引文存在不等于事实正确，Judge未授权不调用 |
+| T14 | P2 / 待实施（进入2027年前） | F14；无依赖。本轮没有核实最新官方费率；后续核实官方日历、别名和独立币种价格，测试未知年份降级 |
+| T15g | P1 / 待实施（未获生产操作授权） | 本地完成不能代替目标配置、角色、备份和容量验证；需要维护窗口与具体批准，不自动上线 |
+
+### T05a · P2 · 待实施：在途请求、时间和 SQL 等待边界
+
+- 对应F08；保留T05历史原子性/并发验收。文件：app/services/postgres_store.py、app/db/engine.py、agent_service.py。
+- 风险与方案：锁前时间可能倒退、TTL启用时长请求缺租约、SQL等待无服务器截止；采用锁后/单调时间、受限在途策略和lock/statement timeout，不跨LLM持事务。
+- 依赖：T06，与T03总截止协调。验收：屏障控制时间不倒退，跨TTL长请求/主动删除/清理、超时回滚与池归还；默认保留清理仍关闭。
+
+### T09a · P1 · 已完成（DONE）：Planner/Collaboration 结构验证
+
+- 对应F06，从原T09拆出；文件：agent/llm_planner.py、collaboration_agent.py、状态和测试。
+- 无前置。风险/方案：非法嵌套/null导致TypeError；校验允许步骤、去重、bool、回答及数组字段，确定有界回退，复用现有Pydantic或小型解析函数。
+- 验收：null/对象/数字/重复/未知值/空回答均不逃逸异常；保留快路径、最多一次补充、usage和T06失败语义。
+- 本地验收：2026-11-24新增18项回归、完整196项中193通过/3跳过；详见末尾记录与[结构边界说明](../docs/DEVELOPMENT.md#model-output-validation)。T06负责后续整体终态传播，本轮不实施。
+
+### T09b · P2 · 待实施：Memory 容量与锁边界
+
+- 对应F09，复用原T09剩余范围；文件：utils/memory.py、历史读取和调用方。
+- 依赖T03/T06。全局锁内I/O、全历史输入和无界缓存改为会话/版本范围、容量/有效期约束和锁外计算。
+- 验收：长历史、并发摘要、淘汰/失效、跨会话隔离、usage与上下文连续性；不因摘要复用而增加调用。
+
+### T11a · P2 · 待实施：可复现运行依赖
+
+- 对应F12；文件：requirements、Dockerfile、CI；无前置。
+- 风险与方案：多数>=及浮动基础镜像导致漂移；固定经验证的依赖/基础镜像更新方式，保留BGE revision和pypdf一致性、迁移依赖分离。
+- 验收：新环境版本清单一致、升级兼容独立验证；安全扫描结果按适用性复核，本轮未作漏洞无风险声明。
+
+### T11b · P2 · 待实施：CI 容器实际运行
+
+- 对应F12；文件：CI、容器验收脚本。
+- 依赖T11a、T12a。现有CI仅build，增加独立PG和无FAISS容器启动/上传/Source/SSE/重启验证。
+- 验收：默认与非默认PORT、缺模型/DB/schema、安全上下文、零付费且不连接生产；不以docker build成功替代运行。
+
+### T12a · P1 · 待实施：依赖就绪与冷启动
+
+- 对应F07；文件：app/main.py、健康路由、Dockerfile；依赖T11a。
+- 方案：静态liveness与内部readiness分工，模型/profile/schema启动门控和PORT一致；公开契约变化先确认。
+- 验收：DB断开、扩展/模型缺失、冷启动/重启、非默认PORT均能明确判断，零供应商请求；资源基于实测峰值和余量，不假设旧Render配置足够。
+
+### T12b · P2 · 待实施：原生 PG 备份恢复与运维信号
+
+- 对应F13；文件：本地运维脚本、开发/测试文档。
+- 依赖已完成T05/T15f/T16d与T11b制品。原生PG备份/恢复全量对账，明确保留、RPO/RTO与连接/资源/失败指标。
+- 验收：全部消息、文档元数据、向量及模型profile可恢复；SQLite反向导出不能当PG完整备份；生产演练、保留数据删除和外部通知另批。
+
+### T15d1 · P2 · 待实施：离线迁移工具验证补强
+
+- 对应F11，保留T15d/T16d历史完成。文件：migration_tools/snapshot.py、import_legacy.py、export_legacy.py；无前置。
+- 方案：强制完整manifest必需文件、严格JSON和提交前对账；明确受限恢复与完整PG备份区别；不扩张可信pickle输入。
+- 验收：空清单/省略库或索引、重复键、非法数字/Unicode、向量错配、重跑和失败原子性；原输入不改。未经演练不处理生产数据。
+
+### T15e2 · P1 · 待实施：新存储部署候选配置
+
+- 对应F07，承接T15e未实施的Render部分；文件：render.yaml、发布/回退说明。
+- 依赖T11b、T12a/b；上线还需T01/T03/T04/T06和T15g批准。
+- 方案：明确连接、运行/迁移角色、受控Schema升级、模型资源测量、健康/日志及恢复，先交付可审核配置。
+- 验收：静态Blueprint校验、隔离模拟与回退；平台能力和费用在上线前核实；本任务不自动创建收费资源或部署。
+
+### T13a / T13b / T13c · P2 / P3 / P3 · 待实施：文档和可选入口收敛
+
+- a对应F15：docs/开发/测试/架构；无依赖。修陈旧状态，历史设计给日期/替代入口。新checkout命令、双语和模块引用一致；本轮仅改plans，其余留待实施。
+- b对应F16：devcontainer/main.py；依赖T01/T02b。明确本地Streamlit定位，保留CORS/XSRF保护，统一异常提示及scope回收。本地启动和失败测试；若公开暴露则提升P1。
+- c对应F17：旧FAISS/待接线注释及许可证；无依赖。小范围维护，许可证由所有者选择，不引入额外流程。
+
+## 2026-11-24 审计轮验证（T01实施前）
+
+- 默认123项94通过/29跳过；全新回环PG测试库123项120通过/3跳过，测试后容器停止。前端6/6和tsc/Vite通过；routing9/9、受控Source1/1均零LLM；真实PDF仅校验30Case/90条引文通过。
+- 本轮未重跑BGE检索/性能、付费API、生产或Render。历史60.7%不当作本轮实测。详见审计第3节，包括首次沙箱中止和后续重跑。
+- 本机已有latest容器因DATABASE_URL配置错误重启，保留原状，不将缓存镜像存在视为服务健康。
+- 本轮审计规划不是开发任务验收。新增子项全部待实施；文件范围仅plans，未提交或推送。
+
+
+## T01 本地实施与验收（2026-11-24）
+
+- 本轮范围：当前最高优先级中可独立验收的输入/上传资源任务组。T04 的凭据/共享/旧客户端方案尚未确认，不擅自改公开访问契约；T03/T06 等保持待实施。开始时已有三份审计规划差异，已保留，未覆盖既有代码工作。
+- 根因与方案：原 AskRequest 只校验非空，上传无应用层资源上限、全量字节读入且会话 SQL 阻塞异步入口。新增 app/input_limits.py，复用原解析、切分、Embedding、PG 原子提交；采用每进程非排队准入和阶段前限额，没有引入队列服务、框架、Schema 迁移或改变 LangGraph 拓扑。
+- 涉及文件：app/input_limits.py、app/main.py、app/api/routes.py、app/schemas/requests.py、app/services/pdf_service.py、.env.example；回归 tests/test_input_limits.py 与 test_input_limits_pg.py；同步 docs/DEVELOPMENT.md、TESTING.md、ARCHITECTURE.md 及本文件/ROADMAP。
+- 行为：问题去首尾空白并限制字符数；JSON/实际multipart字节、接收空闲及累计期限受限，不能靠伪报Content-Length绕过；全批文件名/字节预检在首个PDF提交前完成。解析前校验页数、逐页累计文本、编码前校验Chunk与可搜索正文。临时文件以64KiB块复制，哈希增量计算；上传SQL移到工作线程。
+- 并发/取消：上传与问答/SSE分别有每进程有限额度，繁忙立即429/Retry-After；请求体超时408、资源超限413、问题无效422、无文本/损坏/加密PDF400。重复取消也等待工作线程退出后删除文件/释放上传额度，并在阶段边界停止后续编码/提交；不能撤销已经开始的commit。CORS/request_id保留，已收完请求体后的SSE监听不受请求体超时影响。
+- 兼容性：路径、响应字段和progress/result事件不变；相同文件名仍跳过。全批名称/字节预检失败不写文档/Chunk，但读取会话仍可能刷新活动时间；后续逐文件解析失败时已成功文件保留。正常多PDF、1024维向量、文件名/物理页码及Source零模型路径由真实PG测试验证。
+- 先验/失败证据：复用同日审计基线123项（PG120通过/3跳过）。新增原实现回归复现文件数和空白/超长问题的5个失败断言、同步SQL阻塞；实现中发现的复制取消、SSE接收阶段、合法JSON代理对、CORS提前拒绝边界均补测试并修复，未删有效断言。首个普通沙箱异步测试挂起后已终止本轮精确匹配进程；不记为通过，后续在允许权限下运行。
+- 最终后端：.venv/Scripts/python.exe -B -m unittest discover -s tests -v。全新独立回环 pdf_agent_t01_test、端口55439，启用POSTGRES/LEGACY_RECOVERY开关：147项144通过/3跳过，16.441秒，日志 .evaluation-local/t01-full-pg-final.log；默认所有opt-in关闭：147项116通过/31跳过，12.447秒，日志 t01-full-default-final.log。比审计基线新增24项（22离线/2真实PG），既有测试无新增失败。测试开关、占位Key与HF离线设置同审计；没有读取生产URL作为fallback。
+- 其他验证：前端npm test 6/6及npm run build（tsc/Vite）通过；routing9/9与受控source-citations1/1均LLM=0；真实三PDF --validate-only 的30Case/90条引文校验通过。报告 .evaluation-local/t01-routing.json、t01-source.json、t01-pdf-validation.json；命令入口见TESTING。AST语法、相对链接与git diff --check通过；没有配置的Python lint/type-check不虚构。
+- 验证边界：PG上传采用真实解析/数据库及明确合成Embedding；未重跑真实BGE语义检索、付费生成/Judge/缓存探针，三个对应opt-in仍跳过。未重建应用Docker镜像、访问Render/生产、推送Git或执行数据库迁移；测试库只用于本轮合成夹具，停止容器并保留卷。
+- 剩余风险：默认阈值不是容量保证；原生PDF解析/编码没有硬CPU/内存隔离，运行线程不能立即强杀；多进程额度相加、无会话存储配额或身份速率限制。完整SSE取消/失败语义、SDK重试与总费用预算、访问权限和全链路日志分别仍属T06/T03/T04/T02b。本项不将这些边界标完成。
+- 停止点：T01满足上述本地验收；当前任务组完成即停。建议下一项T03，T04先审阅最小凭据兼容方案，不自动推进。
+
+
+## T03 本地实施与验收（2026-11-24）
+
+- 授权与停止范围：只实施T03，保留上轮T01和审计文档差异；不做T04、生产、付费模型、数据库业务迁移、部署、提交或推送。T01未执行的BGE/付费/镜像验证与原生解析、会话配额等风险仍保留在其记录，不因T03完成而消除。
+- 根因：SDK默认重试隐藏实际尝试数；逻辑调用缺共享调用/Token/费用/截止预算；live/Judge只检查Key，routing歧义会调用模型；缓存探针使用独立直接调用。复用UsageTracker、既有ContextVar/copy_context及定价/用量归一化，未修改Graph拓扑、状态契约、检索或提示词。
+- 修改文件（本轮23个，非整个未提交diff）：utils/llm_budget.py、llm_client.py、observability.py、memory.py；app/services/agent_service.py、app/api/routes.py；main.py；evaluation/runner.py、cache_probe.py；tests/__init__.py、test_llm_budget.py、test_cache_probe.py、test_evaluation_usage.py、test_observability.py；.env.example、.github/workflows/ci.yml；README.md、README.zh-CN.md；docs/ARCHITECTURE.md、DEVELOPMENT.md、TESTING.md；plans/ROADMAP.md与本文件。
+- 预算：每个请求Tracker持有同一线程安全RequestBudget，API断连信号传入该对象，Streamlit/评估作用域同样覆盖Planner、Memory、并行专业Agent、Collaboration、补充步骤和Reviewer。调用前原子预留调用/输入估算/输出上限/USD费用估算，失败或并行竞争不能突破预留；已获额度的调用不会因其他线程被拒绝而误丢弃。取消与截止仍能阻止未发出尝试，未开始的预留可释放。
+- 结算与观测：原usage及by_model/by_operation仅记每次SDK尝试的供应商用量；预算预留不会混入账单统计。有效Token与缓存/价格可用性分开判断，已知部分结算、未知部分保留保守预留；未知费用保持unavailable。供应商超额计数如实保留并停止后续调用。预留、结算、耗尽、取消、重试原因、超时和最终预算有结构化日志，不输出Prompt、Key或原始供应商错误。评估Case增加agent_budget/judge_budget，探针增加budget，Agent/Judge实际usage隔离不变。
+- 超时/重试：SDK max_retries固定0，应用默认0、可设0–2；仅连接/超时和408/409/429/5xx可重试，认证/参数与畸形回答不重试。每次重试重新竞争请求预算，SDK超时裁剪到剩余时间，等待和Memory锁获取遵循截止；过长数字Retry-After不重试。HTTP断连/生成器关闭取消同一预算，已发出调用不可撤回，迟到响应仍保留实际用量。预算失败沿用现有failed progress与安全result，字段和事件类型不变；更广泛终态/前端恢复仍属T06/T07。
+- 付费门禁：routing只用规则，歧义Case失败且LLM为0；live/real-pdf生成与Judge均需--allow-paid-api。免费Source有禁止LLM的上下文，参考标注不能授权调用。真实客户端工厂PDF_AGENT_DISABLE_LLM_API仅0/false放行，无效值关闭；CI固定1，默认tests包入口强制离线。标准命令增加-t .确保先导入tests包。付费opt-in不替代用户授权，不在CI关闭网络保护。缓存探针原2–5次、64输出Token、零重试和重复Prompt行为保留，统一网关只记一次用量。
+- 回归开发证据：初始门禁/SDK测试在旧实现复现5个失败断言；后续回归发现并修复迟到响应、并发预留误取消及网络开关无效值失效开放问题。旧request_id测试保留原三个精确参数断言并新增预算类型/HTTP关闭检查；Judge测试仅增加Fake调用所需的显式付费选项，原用量/错误断言保留。
+- 最终完整命令：.venv/Scripts/python.exe -B -m unittest discover -s tests -t . -v。全新回环PG/pgvector数据库pdf_agent_t03_test、端口55440，POSTGRES/LEGACY_RECOVERY=1：178项175通过/3跳过，29.155秒，日志.evaluation-local/t03-full-pg-final.log。默认全部opt-in=0：178项147通过/31跳过，24.852秒，日志t03-full-default-final.log。相对T01基线新增31项（30预算/工作流/门禁、1探针），既有测试无新增失败。
+- 测试类型：全部LLM为Fake/Mock或SDK+httpx.MockTransport，无实际供应商网络。覆盖12线程争抢3次额度、Token/费用/未知用量、取消前后、SDK状态分类、实际Graph的Memory与单专业快路径、Collaboration→一次QA补充→Reviewer、Source与SSE失败协议。模型别名/缓存/定价及Judge失败旧回归全部保留。真实PG测试仍用明确合成Embedding，不代表BGE语义质量。
+- 其他验证：frontend npm test 6/6、npm run build（tsc/Vite）通过；网络关闭时routing CLI9/9与受控Source1/1通过且LLM=0，报告.evaluation-local/t03-routing.json、t03-source.json。Python AST、Markdown相对链接、CI YAML结构/离线env及git diff --check通过。T01核心和测试哈希保持不变，routes.py只新增两个预算传参；用户T01改动未覆盖。
+- 未执行：真实付费API/Judge/缓存探针、真实BGE语义/压力评估、应用Docker镜像重建、actionlint/远程CI、Render/生产验证。T01的30Case/90引文结果仅保留为此前证据，本轮不冒充新实测。专用PG测试库合成会话/文档/向量/消息对账为0后停止容器，卷保留；历史数据库和索引未动。
+- 剩余限制：输入估算不是供应商Tokenizer，预留不是账单或账户级/跨请求/整批评估预算；Agent/Judge各有独立额度。依赖已有价格/日历，未知时默认费用保护拒绝派发（T14仍待维护）。SDK超时是I/O超时，截止阻止新派发/重试并拒绝迟到成功，不保证强杀原生检索、在途网络或数据库保存，无法追回外部费用。默认阈值尚未经真实付费负载调优；完整断流恢复、全链路日志最少披露、Memory容量/锁内I/O、访问凭据和SQL等待分别仍属T06/T07、T02b、T09b、T04、T05a。
+- 验收结论：T03达到本地验收，停止，不进入其他任务。建议下一项T09a结构校验，再衔接T06；T04仍需单独审阅凭据与兼容方案。
+
+
+## T09a 本地实施与验收（2026-11-24）
+
+- 范围：仅Planner/Collaboration模型控制JSON校验，不实施T04/T06。保留T01/T03全部代码与验收/未验证风险；开始时工作区已有上两轮和审计差异，记录73个既有源/测试/配置文件哈希后最小增量修改。
+- 路径核实：Planner实际生成步骤数组，Collaboration生成七字段控制对象；专业Agent外层字典由代码构造，QA/Summary/Keyword/Compare、Reviewer、Memory实际模型结果均为自然语言，Source无LLM，故不强行JSON化。Evaluation Judge已有独立评分/列表检查，不纳入T09a重构。
+- 修改文件（本轮10个）：新增agent/output_schemas.py、tests/test_model_output_validation.py；修改agent/llm_planner.py、collaboration_agent.py、state.py；同步docs/ARCHITECTURE.md、DEVELOPMENT.md、TESTING.md、plans/ROADMAP.md与本文件。没有更改依赖、Graph拓扑、API/SSE/前端或T03网关/预算。
+- Schema：复用Pydantic RootModel/BaseModel严格模式和SpecialistStep Literal。Planner只能是1–5项原始合法步骤数组，不接受任务对象、参数、未知枚举；稳定去重。Collaboration七字段全部必填、额外字段禁止，文本/诊断列表有限长、StrictBool，不把字符串false或数字转换为布尔。修订标志与步骤数组必须一致，任何已执行/非法步骤使整份响应拒绝；不部分筛选后伪装有效结果。
+- 本地修复：仅首尾空白、单个开头BOM、完整json/无标签围栏、受支持字符串字段首尾空白、步骤稳定去重；原始长度/数量先限额。拒绝重复对象键、非JSON常量、深层/错误类型/空答案/超长及修订矛盾；不截取子JSON、不修单引号/尾逗号、不做名称大小写或近形字映射。具体字符/数组上限见开发文档与Schema单一实现。
+- 回退：Planner记录失败原因后沿用QA规则回退，不声称是有效模型计划；Collaboration标记failed，保留专业结果，needs_revision=false/next_steps=[]，不把原始非法文本放入答案。无专业结果仍为skipped且零调用。没有新增模型修复/重试；原调用与已有传输重试仍由T03预算和usage统计，预算耗尽/取消不买额外修复。
+- 日志：model_output_repaired、model_output_validation_failed、planner_fallback、collaboration_fallback只写固定原因/修复与Pydantic错误代码及节点，不记录响应、Prompt、文档、错误位置键或ValidationError原始输入。已覆盖敏感字段名和值不会进入日志或回退结果。
+- 开发证据：初始4项回归在旧实现复现7个失败与3个TypeError，记录.evaluation-local/t09a-red.log。扩展测试时出现一次本轮测试文件拼接缩进错误，已修复，未改断言或生产行为来规避。最终新增18项（含表驱动恶意/边界子场景）全部通过，日志t09a-targeted.log；不是实际模型输出质量或安全认证。
+- 最终完整命令：.venv/Scripts/python.exe -B -m unittest discover -s tests -t . -v。新建回环PG/pgvector pdf_agent_t09a_test、端口55441，POSTGRES/LEGACY_RECOVERY=1：196项193通过/3跳过，18.365秒，日志.evaluation-local/t09a-full-pg.log；默认全部opt-in关闭：196项165通过/31跳过，13.514秒，日志t09a-full-default.log。相对T03的178项新增18项，旧测试无新增失败。
+- 功能回归：Fake/Mock验证正常/非法JSON、缺字段、类型/枚举/参数、空结果/上限/深层/重复键/Unicode、预算耗尽与零额外修复；自然语言六路径保持文本，Source零LLM；JSON/SSE字段和事件保持，非法协作nested status为failed；重复QA修订只执行一次，第二次请求补充仍受既有MAX_REVISION_COUNT=1限制。T03全部预算/重试/费用、Judge失败、隔离与T01回归保留。
+- 其他验证：前端npm test 6/6、npm run build（tsc/Vite）通过；Routing CLI9/9、受控Source1/1通过且LLM=0，JSON报告.evaluation-local/t09a-routing.json、t09a-source.json。Python语法、相对链接、新文件空白及git diff --check通过。哈希对账只允许既有agent/planner、collaboration、state三处源码变化，T01/T03及已有测试/Graph/API/SSE源文件均未覆盖。
+- 未执行：真实付费API/模型Schema遵循率、真实BGE质量/压力评估、应用Docker镜像重建、远程CI与Render/生产；不能将未运行项写成通过。新测试库仅有合成夹具，对账会话/文档/向量/消息为0后停止容器并保留卷，未动历史数据；未提交、推送或部署。
+- 剩余风险：结构/执行控制一致性不代表事实正确、引用受支持或完全防提示注入；严格必填/长度限制可能增加模型回退，尚未付费实测。自然语言空文本/回答质量、Memory容量/锁内I/O、跨请求费用、原生在途取消等既有风险分别仍由T06/T09b、T08/T10和T03后续边界承担，T01/T03原记录保留。
+- T06依赖与停止点：T09a提供受控步骤、合法协作字段及明确failed/fallback；T06需继续设计整体成功/降级/失败、持久化失败和断流终态，不能仅凭本项通过宣称全局失败传播完成。Planner回退目前通过日志识别，无新增公共状态或SSE事件；若T06需协议变化仍须先确认。T09父项保持进行中、T09b待实施；本轮T09a完成后停止，不自动进入T06。

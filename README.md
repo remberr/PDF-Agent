@@ -59,10 +59,12 @@ Both question endpoints take JSON such as `{"question":"Show the sources."}`. Up
 ## Tests and evaluation
 
 ```sh
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -t . -v
 npm --prefix frontend test
 python -m evaluation.runner --mode routing
 ```
+
+Requests share LLM call, token reservation, estimated USD cost, and deadline budgets; see [configuration and limits](docs/DEVELOPMENT.md#llm-budgets). SDK retries are disabled, and application retries default to zero. CI and default unit tests block provider network access. Live/real-PDF generation and Judge require explicit `--allow-paid-api`; routing never calls an LLM. Reservations are not billed usage, and cancellation cannot undo requests already sent.
 
 [The testing guide](docs/TESTING.md) covers PostgreSQL integration, offline recovery, and real-PDF evaluation. Use a separate test database and keep PDF files and generated reports outside Git. For local retrieval without model API calls, point `DATABASE_URL` at a migrated test database and run:
 

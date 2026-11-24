@@ -25,20 +25,28 @@ $env:PDF_AGENT_RUN_LOCAL_PDF_TESTS = "0"
 $env:PDF_AGENT_RUN_PAID_TESTS = "0"
 $env:PDF_AGENT_RUN_CACHE_API_TESTS = "0"
 $env:PDF_AGENT_RUN_POSTGRES_TESTS = "0"
+$env:PDF_AGENT_RUN_LEGACY_RECOVERY_TESTS = "0"
+$env:PDF_AGENT_DISABLE_LLM_API = "1"
 $env:DEEPSEEK_API_KEY = "offline-test-placeholder"
 $env:HF_HUB_OFFLINE = "1"
-python -B -m unittest discover -s tests -v
+python -B -m unittest discover -s tests -t . -v
 python -B -m evaluation.runner --mode routing --output evaluation-report.json
 python -B -m evaluation.runner --mode live --case source-citations --output evaluation/reports/live-source.json
 ```
 
-POSIX shell 可先 `export PDF_AGENT_RUN_LOCAL_PDF_TESTS=0 PDF_AGENT_RUN_PAID_TESTS=0 PDF_AGENT_RUN_CACHE_API_TESTS=0 PDF_AGENT_RUN_POSTGRES_TESTS=0 DEEPSEEK_API_KEY=offline-test-placeholder HF_HUB_OFFLINE=1`，再执行相同 Python 命令。Source 示例限定当前受控数据集和确定性路径，不可把任意 `live` 命令视为免费。
+POSIX shell 可先 `export PDF_AGENT_RUN_LOCAL_PDF_TESTS=0 PDF_AGENT_RUN_PAID_TESTS=0 PDF_AGENT_RUN_CACHE_API_TESTS=0 PDF_AGENT_RUN_POSTGRES_TESTS=0 PDF_AGENT_RUN_LEGACY_RECOVERY_TESTS=0 PDF_AGENT_DISABLE_LLM_API=1 DEEPSEEK_API_KEY=offline-test-placeholder HF_HUB_OFFLINE=1`，再执行相同 Python 命令。使用`-t .`从tests包入口建立默认离线保护；单文件运行也应保留网络关闭环境变量。Source示例限定当前受控数据集和确定性路径，不可把任意live命令视为免费。
 
 单文件回归示例：`python -B -m unittest discover -s tests -p test_observability.py -v`。用例按行为选择：
 
+T01 输入边界回归：`python -B -m unittest discover -s tests -p 'test_input_limits*.py' -v`。默认运行合成 PDF 的字节/页/文本/Chunk、空/加密/损坏文件、HTTP 分片计量、multipart 文件关闭、并发准入、健康响应及重复取消测试；`test_input_limits_pg.py` 仅在专用本地 `TEST_DATABASE_URL` 和 `PDF_AGENT_RUN_POSTGRES_TESTS=1` 时运行。PG 用例执行真实解析、事务和 Source JSON/SSE，但替换模型为合成 Embedding，不能当作 BGE 语义质量测试。测试不会请求付费模型；完整回归仍使用上面的 unittest discover。
+
+T03回归：`python -B -m unittest tests.test_llm_budget tests.test_cache_probe tests.test_evaluation_usage tests.test_observability -v`。全部使用Fake/Mock或SDK的httpx.MockTransport，无供应商网络。覆盖并发额度竞争、预留/实际用量隔离、费用未知、截止/取消、Memory、修订/Reviewer、错误分类与重试次数、CLI门禁及现有JSON/SSE。预算控制数据与计费usage的区别见[开发文档](DEVELOPMENT.md#llm-budgets)。
+
+T09a回归：`python -B -m unittest tests.test_model_output_validation -v`。使用Mock/Fake覆盖Planner/Collaboration正常与畸形JSON、缺字段、严格类型/枚举、参数注入、重复键、深层/超长输入、本地格式修复、私密字段日志、T03预算拒绝及无额外修复调用；还覆盖自然语言节点不JSON化、Source零LLM、最多一次补充、HTTP JSON/SSE契约。字段约束见[开发文档](DEVELOPMENT.md#model-output-validation)。它不验证真实模型遵循率或事实/引用质量，也不等于T06终态和保存失败已完成。
+
 | 改动 | 最少应覆盖 |
 | --- | --- |
-| Graph/Planner/状态 | `test_agent_fast_paths.py`、`test_evaluation.py`、routing，以及所改分支的失败回归 |
+| Graph/Planner/状态 | `test_agent_fast_paths.py`、`test_model_output_validation.py`、`test_evaluation.py`、routing，以及所改分支的失败回归 |
 | SQLite/FAISS 生命周期 | `test_session_lifecycle.py`，补充受影响的并发/故障测试；现有测试未完整覆盖这些风险 |
 | 提示词/缓存/价格 | `test_prompt_cache.py`、`test_cache_probe.py`、`test_observability.py`、`test_pricing.py`、`test_localized_pricing.py` |
 | Evaluation/Judge | `test_evaluation.py`、`test_evaluation_usage.py`、`test_real_pdf_evaluation.py`；保持参考证据隔离 |
@@ -97,10 +105,11 @@ try {
 
 ## 付费测试：获得具体授权后单独执行
 
-在另一个终端设置有效的后端 Key，并明确测试数据、用例、调用数量/预算和报告路径。不要在 CI 默认启用，也不要把它们接到普通检查脚本。
+在另一个终端设置有效的后端Key，并明确测试数据、用例、调用数量/预算和报告路径。取得具体授权后才将`PDF_AGENT_DISABLE_LLM_API`设为`0`；CI保持`1`，不得为付费验证清除CI保护。不要把付费命令接到普通检查脚本。
 
 ```text
 python -m evaluation.runner --mode real-pdf --pdf-dir "C:/path/to/pdfs" --case real-qa-attention-scaling --allow-paid-api --llm-judge --output evaluation/reports/paid-rag.json
+python -m evaluation.runner --mode live --case compare-reports --allow-paid-api --llm-judge --output evaluation/reports/paid-controlled.json
 python -m evaluation.cache_probe --pdf-path "C:/path/to/pdfs/N19-1423.pdf" --page 3 --attempts 3 --allow-paid-api --output evaluation/reports/cache-probe.json
 ```
 
@@ -111,33 +120,38 @@ python -m evaluation.cache_probe --pdf-path "C:/path/to/pdfs/N19-1423.pdf" --pag
 ```powershell
 $env:PDF_AGENT_EVAL_PDF_DIR = "C:/path/to/pdfs"
 $env:PDF_AGENT_RUN_PAID_TESTS = "1"
+$env:PDF_AGENT_DISABLE_LLM_API = "0"
 try {
     python -m unittest discover -s tests -p test_real_pdf_evaluation.py -v
 } finally {
     $env:PDF_AGENT_RUN_PAID_TESTS = "0"
+    $env:PDF_AGENT_DISABLE_LLM_API = "1"
 }
 
 $env:PDF_AGENT_CACHE_PDF_PATH = "C:/path/to/pdfs/N19-1423.pdf"
 $env:PDF_AGENT_RUN_CACHE_API_TESTS = "1"
+$env:PDF_AGENT_DISABLE_LLM_API = "0"
 try {
     python -m unittest discover -s tests -p test_cache_probe.py -v
 } finally {
     $env:PDF_AGENT_RUN_CACHE_API_TESTS = "0"
+    $env:PDF_AGENT_DISABLE_LLM_API = "1"
 }
 ```
 
 真实 RAG unittest 的报告位于临时目录并在结束后清理；需要留存报告时使用上面的 CLI。缓存 unittest 默认保存到 `evaluation/reports/cache-probe.json`。
 
-**既有边界：** real-pdf 生成/Judge 与缓存探针要求 `--allow-paid-api`；controlled `--mode live --llm-judge` 或含生成的 live 用例只检查 Key，没有同样的显式付费开关。因此禁止将“live”误认为免费；统一防误调用仍是 [T03](../plans/TASKS.md#t03) 待办。付费相关环境变量不是 CLI 的统一防护开关。
+**门禁：** live/real-pdf生成、Judge与缓存探针均要求`--allow-paid-api`；存在Key或测试opt-in不替代CLI授权。routing不调用LLM，免费Source上下文也禁止模型派发；新自定义歧义routing用例会失败而非付费回退。网络关闭变量独立生效，即使传入付费开关也不能绕过。
 
 ## 报告解释与 CI
 
 - controlled 与 real-pdf 数据集分离；默认真实报告写入已忽略的 `evaluation/reports/`，可用 `--output` 指定。自定义路径应检查忽略规则与隐私。
 - 每 Case 与 summary 有 `agent_usage`、`judge_usage`、`total_usage`，保留兼容 `usage` 及 by_model/by_operation。Judge 失败保留状态和已记录用量；未知成本不等于免费。
+- 每Case另有独立的`agent_budget`、`judge_budget`，缓存探针有`budget`；其中committed_or_reserved是保守控制额度，不可加入usage或当账单相加。Agent/Judge各有独立请求预算，不代表整批评估的统一账单上限。
 - validation/retrieval 报告 `passed: null`、质量未评估；普通无 Judge 的报告只有结构指标。引用 precision/recall 基于集合匹配，不能推导语义正确。
 - 真实 PDF 的 30 条参考用例含事实、引文与禁用主张，`human_verified` 当前为 false。程序核对原文不替代人工语义复核；Judge 通过也不自动把参考升级为 Ground Truth。
 - CLI 非零退出可能是阈值未达标或配置/执行错误，需查看报告；跳过不能算通过。
 
-[CI](../.github/workflows/ci.yml) 在 main push/PR 和手动触发时运行 Python 3.11 unittest、routing、Node 22 build/test，再构建 Docker 镜像（`push: false`）。默认不运行真实 PDF/付费测试，不运行容器健康检查；当前也未上传评估报告为 CI artifact。
+[CI](../.github/workflows/ci.yml) 在main push/PR和手动触发时有四个job：Python3.11默认unittest/routing、独立PG/pgvector与离线恢复集成、Node22 build/test，以及Docker构建（`push: false`）。全局网络关闭变量固定为1，测试从tests包入口运行。默认不运行真实PDF/付费测试，不运行容器健康检查；当前也未上传评估报告为CI artifact。
 
 历史验证证据：2026-11-16 上一阶段只读审计在 `4d4e55b` 上记录后端 69 项（66 通过、3 个 opt-in 跳过），前端 6 项通过、应用 TS noEmit 通过、routing 9/9 且零 LLM 调用。这不是本次文档变更的重新执行结果，也不包含前端完整 build、真实 PDF 生成、付费 API、Docker 运行或线上负载验证。本阶段纯文档验收只检查内容、链接、命令与改动范围。

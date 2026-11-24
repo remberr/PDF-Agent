@@ -4,6 +4,7 @@ import re
 from agent.output_schemas import ModelOutputError, log_validation_failure, parse_planner_output
 from utils.llm_client import LLMClientError, chat_with_deepseek
 from utils.observability import log_event
+from utils.execution import error_reason, record_issue
 
 
 logger = logging.getLogger(__name__)
@@ -230,6 +231,7 @@ Rules:
         )
 
     except LLMClientError as exc:
+        record_issue(error_reason(exc))
         log_event(logger, logging.WARNING, 'planner_fallback', reason='model_unavailable',
                   error_type=type(exc).__name__)
         return ["qa"]
@@ -237,6 +239,7 @@ Rules:
     try:
         return parse_planner_output(content)
     except ModelOutputError as exc:
+        record_issue('invalid_model_output')
         log_validation_failure('planner', exc)
         log_event(logger, logging.WARNING, 'planner_fallback', reason=exc.reason)
         return ['qa']

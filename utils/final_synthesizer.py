@@ -1,4 +1,5 @@
 from utils.llm_client import LLMClientError, chat_with_deepseek
+from utils.execution import error_reason, record_issue
 
 
 def synthesize_final_answer(question, steps, answers):
@@ -39,5 +40,6 @@ Requirements:
             operation="reviewer",
         )
 
-    except LLMClientError:
+    except LLMClientError as exc:
+        record_issue(error_reason(exc))
         return "\n\n".join(answers)

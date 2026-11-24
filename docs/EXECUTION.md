@@ -1,0 +1,29 @@
+# 执行终态与传输契约
+
+T06（2026-11-24）经批准增量扩展。JSON `/ask` 与 SSE `/ask/stream` 共用执行器；原响应字段、`progress`/`result` 事件名及 progress 的 `running/completed/failed` 枚举保留。HTTP 200 表示已交付结果，不代表生成和保存都成功。不增加自动重试、恢复重放或模型修复调用。
+
+## 最终结果 execution
+
+| 字段 | 含义 |
+| --- | --- |
+| `generation_status` | `succeeded`：完整生成且无节点降级；`degraded`：有可用输出，但规划/专业节点/协作/审阅发生回退或部分失败；`failed`：全部专业输出失败、Graph 异常、空回答或未完成工作流；`cancelled`：观察到取消 |
+| `status` | 初值等于 generation_status；保存失败覆盖为 failed。只有生成成功且保存成功才是完全成功 |
+| `persistence` | saved：保存函数完成提交；failed：保存抛异常，不能承诺写入成功；not_attempted：观察到取消后未开始保存 |
+| `reason` | 无问题为 null；否则为受控代码，不含供应商正文。保存失败时优先为 persistence_failed，生成节点的原因仍在 node_statuses |
+| `node_statuses` | 节点名到 `{status, reason}` 的映射；节点 status 为 running/succeeded/degraded/failed/cancelled/skipped。缺失表示未观察到该节点，不推断为成功 |
+
+当前原因包括 specialist_failed、empty_answer、model_unavailable、model_timeout、invalid_model_output、collaboration_failed、reviewer_failed、workflow_error、incomplete_workflow、budget_exhausted、deadline_exceeded、paid_api_disabled、cancelled、persistence_failed，以及无更细原因时的 node_failed。原因描述过程状态，不评判回答事实是否正确。
+
+节点完成后记录实际 outcome；仅 succeeded 节点进入 completed_nodes。progress 增加 node_statuses 快照，正在执行的节点标为 running；degraded/failed/cancelled 沿用原 progress failed，由快照区分细节。Planner 快路径、单专业节点审阅快路径、Source 零模型及最多一次补充步骤不变。
+
+正常传输最终产生一个 result。空/截断 Graph 不生成假成功；保存失败仍交付已生成回答、usage 和失败元数据，不重新生成。保存使用候选消息快照，失败不把候选消息留在原会话对象中。提交时连接中断可能导致提交结果不确定，因此 failed 不能等同于数据库肯定没有写入；不自动重放，保留既有批次幂等约束。
+
+## 取消与资源生命周期
+
+关闭事件迭代器或 HTTP 断连取消 T03 同一预算，阻止后续派发并关闭 Graph 迭代器。尚未开始的保存不执行；已开始/已提交的事务无法撤回。在途同步 SDK/线程不保证即时中断，迟到供应商 usage 仍由原 Tracker 结算。断开的客户端不保证收到 result，客户端 EOF 无完整终态必须视为中断，禁止自动重发付费生成请求。SQL 等待及跨 TTL 在途策略由 T05a 补强。
+
+## 兼容范围
+
+新增字段不删除、改名或改变既有字段类型。旧客户端可以忽略新增字段，但仍可能误把失败结果当成成功；T07 才提供相应 UI 与取消恢复处理。拒绝额外字段的严格客户端应升级响应 Schema。Python AskResponse 接受旧 payload 缺失 execution（默认 null）；这仅为数据兼容，不代表旧 payload 已验证成功。新服务器生成的最终结果总是包含 execution。
+
+验证入口见 [TESTING.md](TESTING.md)，进度和未执行验证见 [TASKS.md](../plans/TASKS.md)。

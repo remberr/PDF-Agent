@@ -1,10 +1,14 @@
 import json
 import logging
+import asyncio
+from concurrent.futures import CancelledError
 from functools import lru_cache
 from time import perf_counter
 
 from agent.graph_agent import build_pdf_agent_graph
 from agent.state import create_initial_agent_state, empty_collaboration_notes
+from utils.execution import error_reason, outcome
+from utils.llm_budget import LLMClientError
 from app.services.session_store import save_session
 from utils.observability import (
     get_usage_summary,
@@ -115,6 +119,9 @@ def _progress_event(
     elapsed_ms=None,
     usage_tracker=None,
 ):
+    node_statuses = dict(state.get('node_statuses', {}))
+    if status == 'running':
+        node_statuses[node] = outcome('running')
     data = {
         "node": node,
         "status": status,
@@ -123,6 +130,7 @@ def _progress_event(
         "revision_count": state.get("revision_count", 0),
         "timings": dict(state.get("timings", {})),
         "usage": get_usage_summary(usage_tracker),
+        "node_statuses": node_statuses,
     }
 
     if elapsed_ms is not None:
@@ -156,25 +164,46 @@ def _build_result(state, usage_tracker=None):
 
 
 def _save_result(session, result):
-    session["messages"].append(
-        {
-            "role": "assistant",
-            "content": result["answer"],
-            "steps": result["steps"],
-            "collaboration_notes": result["collaboration_notes"],
-            "revision_count": result["revision_count"],
-            "sources": result["sources"],
-            "timings": result["timings"],
-            "usage": result["usage"],
-        }
-    )
-    save_session(session)
+    # Commit a candidate snapshot; a rollback must not leave unsaved messages
+    # or success metadata in the caller's session snapshot.
+    candidate = dict(session, messages=[*session['messages'], {
+        'role': 'assistant', 'content': result['answer'],
+        **{key: result[key] for key in ('steps', 'collaboration_notes',
+            'revision_count', 'sources', 'timings', 'usage', 'execution')},
+    }])
+    save_session(candidate)
+    session.update(candidate)
+
+
+def _execution(state, *, reason=None, cancelled=False):
+    nodes = dict(state.get('node_statuses', {}))
+    steps = [nodes[step] for step in state.get('steps', []) if step in nodes]
+    if cancelled:
+        generation = 'cancelled'
+    elif reason:
+        generation = 'failed'
+    elif 'reviewer' not in nodes or not state.get('answer', '').strip():
+        generation, reason = 'failed', 'incomplete_workflow'
+    elif steps and all(node['status'] in {'failed', 'cancelled'} for node in steps):
+        generation, reason = 'failed', next((node['reason'] for node in steps if node['reason']), 'specialist_failed')
+    elif any(node['status'] in {'degraded', 'failed', 'cancelled'} for node in nodes.values()):
+        generation, reason = 'degraded', next((node['reason'] for node in nodes.values() if node['reason']), 'node_failed')
+    else:
+        generation = 'succeeded'
+    return dict(status=generation, generation_status=generation, reason=reason,
+                node_statuses=nodes, persistence='not_attempted')
 
 
 def iter_pdf_agent_events(session, question, request_id=None, llm_budget=None):
     tracker = new_usage_tracker(llm_budget)
     try:
         yield from _iter_pdf_agent_events(session, question, request_id, tracker)
+    except GeneratorExit:
+        tracker.budget.cancel('workflow_closed')
+        with observability_context(request_id, session.get('session_id'), tracker):
+            log_event(logger, logging.INFO, 'agent_workflow_interrupted', reason='cancelled',
+                      usage=get_usage_summary(tracker), persistence='not_attempted_or_already_saved')
+        raise
     finally:
         with observability_context(request_id, session.get('session_id'), tracker):
             log_event(logger, logging.INFO, 'llm_budget_finished', **tracker.budget.summary())
@@ -186,7 +215,9 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
     Run the LangGraph workflow and yield progress plus the final result.
     """
 
-    pdf_agent_graph = get_pdf_agent_graph()
+    working_session = dict(session, messages=list(session["messages"]))
+    failure_reason = None
+    pdf_agent_graph = None
     workflow_started_at = perf_counter()
     session_id = session.get("session_id")
 
@@ -200,7 +231,7 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
             document_count=session.get("document_count", 0),
         )
 
-    session["messages"].append(
+    working_session["messages"].append(
         {
             "role": "user",
             "content": question
@@ -210,7 +241,7 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
     state = create_initial_agent_state(
         question,
         session["vectorstore"],
-        session["messages"],
+        working_session["messages"],
         session["loaded_pdfs"]
     )
     completed_nodes = []
@@ -227,6 +258,7 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
     graph_events = None
 
     try:
+        pdf_agent_graph = get_pdf_agent_graph()
         graph_events = iter(
             pdf_agent_graph.stream(
                 state,
@@ -271,13 +303,20 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
                     )
                     state["timings"] = timings
 
-                    if public_node not in completed_nodes:
+                    nodes = dict(state.get('node_statuses', {}))
+                    nodes.setdefault(public_node, outcome('succeeded'))
+                    state['node_statuses'] = nodes
+                    node_status = nodes[public_node]['status']
+                    if node_status == 'succeeded' and public_node not in completed_nodes:
                         completed_nodes.append(public_node)
+                    elif node_status != 'succeeded' and public_node in completed_nodes:
+                        completed_nodes.remove(public_node)
 
                     log_event(
                         logger,
                         logging.INFO,
-                        "agent_node_completed",
+                        "agent_node_finished",
+                        outcome=node_status,
                         node=public_node,
                         elapsed_ms=elapsed_ms,
                         planned_steps=list(state.get("steps", [])),
@@ -286,7 +325,7 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
                     emitted_events.append(
                         _progress_event(
                             public_node,
-                            "completed",
+                            "completed" if node_status == "succeeded" else "failed",
                             state,
                             completed_nodes,
                             elapsed_ms,
@@ -309,7 +348,11 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
 
             yield from emitted_events
 
-    except Exception as exc:
+    except (Exception, asyncio.CancelledError) as exc:
+        failure_reason = ('cancelled' if isinstance(exc, (asyncio.CancelledError, CancelledError)) else
+                          error_reason(exc) if isinstance(exc, LLMClientError) else 'workflow_error')
+        state['node_statuses'][active_node or 'workflow'] = outcome(
+            'cancelled' if failure_reason == 'cancelled' else 'failed', failure_reason)
         with observability_context(request_id, session_id, usage_tracker):
             log_event(
                 logger,
@@ -338,9 +381,17 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
             completed_nodes,
             usage_tracker=usage_tracker,
         )
+    except GeneratorExit:
+        usage_tracker.budget.cancel('workflow_closed')
+        raise
     finally:
         if graph_events is not None and hasattr(graph_events, 'close'):
-            graph_events.close()
+            try:
+                graph_events.close()
+            except Exception as exc:
+                failure_reason = 'workflow_error'
+                with observability_context(request_id, session_id, usage_tracker):
+                    log_event(logger, logging.ERROR, 'agent_graph_close_failed', error_type=type(exc).__name__)
 
     timings = dict(state.get("timings", {}))
     timings["total"] = round(
@@ -351,28 +402,26 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker):
 
     with observability_context(request_id, session_id, usage_tracker):
         result = _build_result(state, usage_tracker)
-        _save_result(session, result)
-        usage = result["usage"]
-        log_event(
-            logger,
-            logging.INFO,
-            "agent_workflow_completed",
-            planned_steps=list(result["steps"]),
-            revision_count=result["revision_count"],
-            source_count=len(result["sources"]),
-            duration_ms=timings["total"],
-            llm_calls=usage["llm_calls"],
-            input_tokens=usage["input_tokens"],
-            output_tokens=usage["output_tokens"],
-            cache_hit_rate=usage["cache_hit_rate"],
-            estimated_cost_usd=usage["estimated_cost_usd"],
-            cost_estimate_available=usage["cost_estimate_available"],
-        )
-
-    yield {
-        "type": "result",
-        "data": result
-    }
+        result['execution'] = _execution(state, reason=failure_reason,
+                                         cancelled=failure_reason == 'cancelled')
+        # Cancellation can arrive after the final graph yield. No new save is
+        # started after observed cancellation; an already committed save cannot
+        # be recalled. A broken transport is never promised a terminal event.
+        summary = usage_tracker.budget.summary()
+        if summary['cancel_reason'] in {'cancelled', 'client_disconnected', 'workflow_closed'}:
+            result['execution'] = _execution(state, reason='cancelled', cancelled=True)
+        if result['execution']['status'] != 'cancelled':
+            result['execution']['persistence'] = 'saved'
+            try:
+                _save_result(working_session, result)
+            except Exception as exc:
+                result['execution'].update(status='failed', reason='persistence_failed', persistence='failed')
+                log_event(logger, logging.ERROR, 'agent_result_save_failed', error_type=type(exc).__name__)
+            else:
+                session.update(working_session)
+        log_event(logger, logging.INFO, 'agent_workflow_finished',
+                  execution=result['execution'], duration_ms=timings['total'], usage=result['usage'])
+    yield {'type': 'result', 'data': result}
 
 
 def ask_pdf_agent(session, question, request_id=None, llm_budget=None):

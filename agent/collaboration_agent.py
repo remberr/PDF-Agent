@@ -4,6 +4,7 @@ from agent.state import empty_collaboration_notes
 from agent.output_schemas import ModelOutputError, log_validation_failure, parse_collaboration_output
 from utils.llm_client import LLMClientError, chat_with_deepseek
 from utils.observability import log_event
+from utils.execution import error_reason, record_issue
 
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ Rules:
         )
 
     except LLMClientError as exc:
+        record_issue(error_reason(exc))
         log_event(
             logger,
             logging.ERROR,
@@ -109,6 +111,7 @@ Rules:
     try:
         collaboration = parse_collaboration_output(content, steps)
     except ModelOutputError as exc:
+        record_issue('invalid_model_output')
         log_validation_failure('collaboration', exc)
         log_event(logger, logging.WARNING, 'collaboration_fallback', reason=exc.reason)
         return build_failed_collaboration_notes(

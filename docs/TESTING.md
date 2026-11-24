@@ -62,6 +62,10 @@ npm run build
 
 只检查应用 TypeScript 而不构建产物可用 `node node_modules/typescript/bin/tsc --project tsconfig.app.json --noEmit --incremental false`；这不能替代包含 Vite 配置检查及打包的完整 build。仓库目前没有 lint 命令或覆盖率门槛，不应虚构。
 
+## 执行终态回归（T06）
+
+`python -B -m unittest tests.test_execution_contract -v` 使用Fake/Mock覆盖JSON/SSE一致性、成功/部分失败/空输出、Planner/Reviewer降级、Graph异常/空流/截断、预算/截止/取消、保存失败只尝试一次、候选历史回滚、关闭Graph及并发状态隔离。原HTTP/SSE路由和usage回归保留；完整PG suite覆盖真实事务下的Source JSON/SSE，Embedding采用合成向量，不证明BGE或真实模型质量。契约定义见[EXECUTION.md](EXECUTION.md)。
+
 ## PostgreSQL 连接集成测试（T15a）
 
 `test_db_config.py` 和 `test_postgres_connection.py` 中的安全入口测试默认离线运行。7 项真实 PostgreSQL 连接测试默认跳过，不计为通过。先按 [开发文档](DEVELOPMENT.md#postgresql-迁移开发环境t15a) 启动独立 PG17 测试库并设置 TEST_DATABASE_URL，再在关闭付费开关的终端执行：

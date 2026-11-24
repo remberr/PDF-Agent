@@ -16,12 +16,14 @@ from agent.compare_agent import compare_agent
 from agent.reviewer_agent import reviewer_agent
 from agent.collaboration_agent import collaboration_agent
 from utils.observability import log_event
+from utils.execution import issue_scope, outcome, record_issue, tracked_node
 
 
 MAX_REVISION_COUNT = 1
 logger = logging.getLogger(__name__)
 
 
+@tracked_node('planner')
 def planner_node(state: AgentState):
     """
     Planner Agent node.
@@ -47,6 +49,7 @@ def planner_node(state: AgentState):
     }
 
 
+@tracked_node('collaboration')
 def collaboration_node(state: AgentState):
     """
     Collaboration Agent node.
@@ -72,6 +75,7 @@ def collaboration_node(state: AgentState):
     }
 
 
+@tracked_node('revision')
 def revision_controller_node(state: AgentState):
     """
     Revision Controller node.
@@ -195,17 +199,20 @@ def _execute_timed_specialist(
     loaded_pdfs
 ):
     started_at = perf_counter()
-    output = _execute_specialist_step(
-        step,
-        question,
-        vectorstore,
-        chat_history,
-        loaded_pdfs
-    )
+    with issue_scope() as issues:
+        output = _execute_specialist_step(
+            step, question, vectorstore, chat_history, loaded_pdfs
+        )
+    if issues:
+        output = dict(output, status='failed' if any(fatal for _, fatal in issues) else 'degraded',
+                      reason=issues[0][0])
+    if not isinstance(output.get('answer'), str) or not output['answer'].strip():
+        output = dict(output, status='failed', reason='empty_answer', answer='No answer was generated.')
     elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
     return output, elapsed_ms
 
 
+@tracked_node('specialists')
 def specialist_agent_node(state: AgentState):
     """
     Specialist Agent node.
@@ -230,6 +237,7 @@ def specialist_agent_node(state: AgentState):
     answers = list(state.get("answers", []))
     results = list(state.get("results", []))
     timings = dict(state.get("timings", {}))
+    node_statuses = dict(state.get('node_statuses', {}))
 
     if not pending_steps:
         return {
@@ -261,6 +269,9 @@ def specialist_agent_node(state: AgentState):
 
     for step in pending_steps:
         output = outputs[step]
+        status = output.get('status', 'failed')
+        node_statuses[step] = outcome('succeeded' if status == 'success' else status,
+                                     output.get('reason') or ('specialist_failed' if status == 'failed' else None))
         answers.append(
             f"## {output['agent']}\n{output['answer']}"
         )
@@ -270,6 +281,7 @@ def specialist_agent_node(state: AgentState):
 
     return {
         "answers": answers,
+        "node_statuses": node_statuses,
         "results": results,
         "completed_steps": completed_steps,
         "timings": timings,
@@ -277,6 +289,7 @@ def specialist_agent_node(state: AgentState):
     }
 
 
+@tracked_node('controller')
 def next_step_node(state: AgentState):
     """
     Workflow Controller node.
@@ -331,6 +344,7 @@ def should_revise(state: AgentState):
     return "continue"
 
 
+@tracked_node('reviewer')
 def review_node(state: AgentState):
     """
     Reviewer Agent node.
@@ -385,6 +399,7 @@ def review_node(state: AgentState):
             final_answer = output["answer"]
 
         except Exception:
+            record_issue('reviewer_failed')
             final_answer = "\n\n".join(reviewer_answers)
 
     else:

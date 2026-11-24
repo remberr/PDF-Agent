@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel
 
@@ -62,6 +62,19 @@ class LLMUsageResponse(UsageBreakdownResponse):
     by_operation: Dict[str, UsageBreakdownResponse]
 
 
+class NodeOutcomeResponse(BaseModel):
+    status: Literal['running', 'succeeded', 'degraded', 'failed', 'cancelled', 'skipped']
+    reason: str | None = None
+
+
+class ExecutionResponse(BaseModel):
+    status: Literal['succeeded', 'degraded', 'failed', 'cancelled']
+    generation_status: Literal['succeeded', 'degraded', 'failed', 'cancelled']
+    reason: str | None = None
+    node_statuses: Dict[str, NodeOutcomeResponse]
+    persistence: Literal['saved', 'failed', 'not_attempted']
+
+
 class AskResponse(BaseModel):
     answer: str
     steps: List[str]
@@ -70,3 +83,4 @@ class AskResponse(BaseModel):
     revision_count: int
     timings: dict[str, float]
     usage: LLMUsageResponse
+    execution: ExecutionResponse | None = None

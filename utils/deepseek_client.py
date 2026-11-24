@@ -1,6 +1,7 @@
 from utils.citations import format_docs_with_citations
 from utils.llm_client import LLMClientError, chat_with_deepseek
 from utils.memory import build_memory
+from utils.execution import error_reason, record_issue
 
 
 PDF_SYSTEM_PROMPT = """Requirements:
@@ -47,7 +48,8 @@ def ask_deepseek(
     try:
         return chat_with_deepseek(prompt, operation=operation, system_prompt=PDF_SYSTEM_PROMPT)
 
-    except LLMClientError:
+    except LLMClientError as exc:
+        record_issue(error_reason(exc))
         if context:
             return (
                 "The language model is temporarily unavailable, but relevant "

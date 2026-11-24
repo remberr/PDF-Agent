@@ -78,6 +78,9 @@ class AgentState(TypedDict):
     # Per-node and per-specialist execution time in milliseconds
     timings: Dict[str, float]
 
+    # Explicit node outcomes, including fallback and failed specialist steps.
+    node_statuses: Dict[str, dict]
+
     # FAISS vector database
     vectorstore: Any
 
@@ -109,6 +112,7 @@ def create_initial_agent_state(
         "collaboration_notes": empty_collaboration_notes(),
         "revision_count": 0,
         "timings": {},
+        "node_statuses": {},
         "vectorstore": vectorstore,
         "loaded_pdfs": loaded_pdfs or [],
         "chat_history": chat_history

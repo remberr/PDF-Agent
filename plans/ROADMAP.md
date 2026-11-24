@@ -8,7 +8,7 @@
 
 现阶段工程成熟化已完成本地收尾，原 Dockerfile 重建镜像通过隔离数据库迁移、认证、上传、Source/SSE 和重启验收。匿名会话访问和隐私治理接续此前的终态契约、前端恢复、在途/SQL 边界及 Memory 容量改造。
 
-发布依次完成 GitHub `main` 推送及 CI 验证、T15e2 Render 部署准备、经方案确认的 T15g 手动生产切换与运行验收。保持 Render 自动部署及 Blueprint 自动同步关闭。目标环境实测、备份恢复演练及必要发布前置验收是生产切换的依据。实际授权、状态和门禁见 [TASKS 当前队列](TASKS.md#current-execution)。
+发布依次完成 GitHub `main` 推送及 CI 验证、T15e2 Render 部署准备、T15g 手动生产切换与运行验收。优先复用现有套餐和兼容的 PostgreSQL/pgvector，保持 Render 自动部署及 Blueprint 自动同步关闭。目标环境实测、备份恢复演练及必要发布前置验收是生产切换的依据。实际授权、状态和门禁见 [TASKS 当前队列](TASKS.md#current-execution)。
 
 先在现有架构上补边界和回归，再根据实际压力决定是否拆服务。认证方案、阈值、超时、数据保留和允许的并发度需在对应任务启动时明确；不在文档阶段假定容量或业务需求。P3 为低风险原型整理和清晰度事项。
 
@@ -25,7 +25,7 @@
 
 原PostgreSQL专项设计见[迁移方案](../docs/POSTGRESQL_MIGRATION.md)：保留关系库审计与T15连接/Schema、兼容持久化、导入回滚、配置/CI、演练及生产切换职责。向量与一致性目标按下段新方案衔接，专项依赖与每轮实际授权见 [TASKS 当前队列](TASKS.md#current-execution)。
 
-最新[pgvector专项方案](../docs/PGVECTOR_MIGRATION.md)取代原计划的 FAISS 长期持久化目标。T05、T15a–f 本地范围、T16a–f 已实现，不重复迁移或文件代次开发；后续按本次审计补强 T05a/T15d1。T12负责持续原生 PG 备份，Render 配置残项由 T15e2 承接，上线仍须 T15g 批准。旧索引保留供回滚。
+最新[pgvector专项方案](../docs/PGVECTOR_MIGRATION.md)取代原计划的 FAISS 长期持久化目标。T05、T15a–f 本地范围、T16a–f 已实现，不重复迁移或文件代次开发；后续按本次审计补强 T05a/T15d1。T12负责持续原生 PG 备份，Render 配置残项由 T15e2 承接，生产切换按 T15g 的数据保护和验收约束执行。旧索引保留供回滚。
 
 <a id="推荐执行顺序"></a>
 ## 审计建议与后续方向

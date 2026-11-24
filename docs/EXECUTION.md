@@ -24,6 +24,13 @@ T06（2026-11-24）经批准增量扩展。JSON `/ask` 与 SSE `/ask/stream` 共
 
 ## 兼容范围
 
-新增字段不删除、改名或改变既有字段类型。旧客户端可以忽略新增字段，但仍可能误把失败结果当成成功；T07 才提供相应 UI 与取消恢复处理。拒绝额外字段的严格客户端应升级响应 Schema。Python AskResponse 接受旧 payload 缺失 execution（默认 null）；这仅为数据兼容，不代表旧 payload 已验证成功。新服务器生成的最终结果总是包含 execution。
+新增字段不删除、改名或改变既有字段类型。旧客户端可以忽略新增字段，但仍可能误把失败结果当成成功；T07 已提供相应 UI 与显式取消/恢复处理。拒绝额外字段的严格客户端应升级响应 Schema。Python AskResponse 接受旧 payload 缺失 execution（默认 null）；这仅为数据兼容，不代表旧 payload 已验证成功。新服务器生成的最终结果总是包含 execution。
 
 验证入口见 [TESTING.md](TESTING.md)，进度和未执行验证见 [TASKS.md](../plans/TASKS.md)。
+
+
+## 前端消费（T07）
+
+apiRequest从unknown校验结果与会话结构，ApiError保留HTTP状态；404、5xx、网络失败不再混为会话丢失。SSE在拼接字节后归一化CRLF，校验完整帧，EOF无完整result报中断；单帧2,000,000字符上限，result完成即取消/释放reader，不等无限EOF。取消保留AbortError并终止reader；不重发请求。缺execution的旧payload可读，但显示未确认，不把所有节点推定为完成。
+
+App按RequestScope忽略陈旧回调；上传、恢复、问答及新会话切换有AbortSignal。取消仅影响当前问答，不删除已有结果；点击新会话仍沿用原来经用户交互确认后创建/删除旧会话的行为。暂时恢复失败保留本地历史，提供仅GET的连接重试，不重发生成。404仅失效会话入口，恢复时保留旧对话缓存；localStorage异常不阻断当前页面，但刷新恢复可能不可用。浏览器组件挂载和真实网络中断尚未E2E验证。

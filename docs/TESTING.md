@@ -9,7 +9,7 @@
 | 类别 | 入口 | 数据/外部调用 | 能证明什么 |
 | --- | --- | --- | --- |
 | 后端单元与组件回归 | `tests/test_*.py`、unittest | mock LLM、临时 SQLite/文件；部分 FAISS 用测试 Embedding | 状态、生命周期、定价、用量、评估契约；不是完整 HTTP 并发/E2E |
-| 前端单元 | `frontend/tests/workflow-cache.test.ts` | Node 内置测试器，无浏览器 | 缓存/费用显示辅助逻辑；不是面板交互或 SSE 浏览器测试 |
+| 前端单元 | `frontend/tests/*.test.ts` | Node 内置测试器、Fake fetch/ReadableStream、React服务端组件渲染，无浏览器 | SSE逐字节/取消/协议校验、请求隔离/存储失败、双语终态面板及缓存/费用；不等于真实浏览器挂载交互 |
 | routing 评估 | `evaluation/cases.json` | 规则路由，无 LLM | 预期步骤匹配；不验证 LLM Planner 或回答质量 |
 | controlled live | 同上，StaticVectorStore | 预设 Document；部分用例调用模型/Judge | 可控工作流和引用回归；不是真实向量检索 |
 | 本地真实 PDF | manifest + `real_pdf_cases.json` | 原 PDF、生产解析/Embedding/FAISS；模型可需首次下载 | 证据出处验证、实际检索或 Source 路径 |
@@ -61,6 +61,10 @@ npm run build
 ```
 
 只检查应用 TypeScript 而不构建产物可用 `node node_modules/typescript/bin/tsc --project tsconfig.app.json --noEmit --incremental false`；这不能替代包含 Vite 配置检查及打包的完整 build。仓库目前没有 lint 命令或覆盖率门槛，不应虚构。
+
+## 前端生命周期回归（T07）
+
+`cd frontend; npm test` 使用既有TypeScript编译器的测试loader加载TSX，React DOM server渲染真实WorkflowPanel；没有新增框架或运行时依赖。覆盖旧payload未确认、失败/降级/保存失败双语显示、UTF-8/CRLF逐字节SSE、非法progress/result、EOF/截断/终态后立即释放、AbortSignal、HTTP404/500/断网分类且一次请求、陈旧请求/会话隔离和存储异常。`npm run build`包含应用及Vite配置类型检查。未运行真实浏览器端到端；现有Node/SSR测试不宣称覆盖浏览器所有卸载/挂载时序。
 
 ## 执行终态回归（T06）
 

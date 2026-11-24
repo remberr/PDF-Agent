@@ -21,6 +21,7 @@ interface ChatPanelProps {
   progressLabel?: string;
   onQuestionChange: (question: string) => void;
   onAsk: (question?: string) => void;
+  onCancel: () => void;
   t: Translation;
 }
 
@@ -32,6 +33,7 @@ export function ChatPanel({
   progressLabel,
   onQuestionChange,
   onAsk,
+  onCancel,
   t,
 }: ChatPanelProps) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -172,10 +174,10 @@ export function ChatPanel({
           <button
             className="send-button"
             type="button"
-            onClick={() => onAsk()}
-            disabled={!canAsk || !question.trim() || asking}
-            title={t.chat.send}
-            aria-label={t.chat.send}
+            onClick={() => asking ? onCancel() : onAsk()}
+            disabled={!asking && (!canAsk || !question.trim())}
+            title={asking ? t.chat.cancel : t.chat.send}
+            aria-label={asking ? t.chat.cancel : t.chat.send}
           >
             {asking ? (
               <LoaderCircle className="spin" size={18} />

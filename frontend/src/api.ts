@@ -1,194 +1,75 @@
-import type {
-  AskResponse,
-  HealthResponse,
-  SessionDetail,
-  UploadResponse,
-  WorkflowProgress,
-} from "./types";
+import type { AskResponse, HealthResponse, SessionDetail, UploadResponse, WorkflowProgress } from './types';
+import { object, parseAskResponse, parseSession, parseUpload } from './protocol';
+import { readWorkflowStream } from './sse';
 
-const DEFAULT_API_BASE_URL = import.meta.env.DEV
-  ? "http://127.0.0.1:8000"
-  : "";
+const DEFAULT_API_BASE_URL = import.meta.env?.DEV ? 'http://127.0.0.1:8000' : '';
+const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL).replace(/\/$/, '');
 
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
-).replace(/\/$/, "");
-
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
+}
 function detailMessage(detail: unknown): string {
-  if (typeof detail === "string") {
-    return detail;
-  }
-
-  if (Array.isArray(detail)) {
-    return detail
-      .map((item) => {
-        if (typeof item === "object" && item !== null && "msg" in item) {
-          return String(item.msg);
-        }
-        return String(item);
-      })
-      .join(" ");
-  }
-
-  return "The request could not be completed.";
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map(item => object(item) && typeof item.msg === 'string' ? item.msg : 'Invalid request.').join(' ');
+  return 'The request could not be completed.';
 }
-
-async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, init);
-  } catch {
-    throw new Error("Cannot reach the PDF Agent API.");
-  }
-
-  if (!response.ok) {
-    let detail: unknown;
-    try {
-      const payload = (await response.json()) as { detail?: unknown };
-      detail = payload.detail;
-    } catch {
-      detail = undefined;
-    }
-    throw new Error(detailMessage(detail));
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
-}
-
-async function responseError(response: Response): Promise<Error> {
+async function responseError(response: Response): Promise<ApiError> {
   let detail: unknown;
-  try {
-    const payload = (await response.json()) as { detail?: unknown };
-    detail = payload.detail;
-  } catch {
-    detail = undefined;
-  }
-  return new Error(detailMessage(detail));
+  try { const payload: unknown = await response.json(); detail = object(payload) ? payload.detail : undefined; } catch { /* no JSON */ }
+  return new ApiError(detailMessage(detail), response.status);
 }
-
-export function checkHealth(): Promise<HealthResponse> {
-  return apiRequest<HealthResponse>("/health");
-}
-
-export function createSession(): Promise<{ session_id: string }> {
-  return apiRequest<{ session_id: string }>("/sessions", {
-    method: "POST",
-  });
-}
-
-export function getSession(sessionId: string): Promise<SessionDetail> {
-  return apiRequest<SessionDetail>(`/sessions/${sessionId}`);
-}
-
-export function deleteSession(sessionId: string): Promise<void> {
-  return apiRequest<void>(`/sessions/${sessionId}`, {
-    method: "DELETE",
-  });
-}
-
-export function uploadPdfs(
-  sessionId: string,
-  files: File[],
-): Promise<UploadResponse> {
-  const formData = new FormData();
-  files.forEach((file) => formData.append("files", file));
-
-  return apiRequest<UploadResponse>(`/sessions/${sessionId}/pdfs`, {
-    method: "POST",
-    body: formData,
-  });
-}
-
-export function askQuestion(
-  sessionId: string,
-  question: string,
-): Promise<AskResponse> {
-  return apiRequest<AskResponse>(`/sessions/${sessionId}/ask`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
-  });
-}
-
-export async function askQuestionStream(
-  sessionId: string,
-  question: string,
-  onProgress: (progress: WorkflowProgress) => void,
-): Promise<AskResponse> {
+async function request(path: string, init?: RequestInit): Promise<Response> {
   let response: Response;
-
-  try {
-    response = await fetch(
-      `${API_BASE_URL}/sessions/${sessionId}/ask/stream`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
-      },
-    );
-  } catch {
-    throw new Error("Cannot reach the PDF Agent API.");
+  try { response = await fetch(`${API_BASE_URL}${path}`, init); }
+  catch (error) {
+    if (init?.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw new DOMException('Request cancelled.', 'AbortError');
+    throw new ApiError('Cannot reach the PDF Agent API.', 0);
   }
-
-  if (!response.ok) {
-    throw await responseError(response);
-  }
-
-  if (!response.body) {
-    throw new Error("The streaming response is unavailable.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result: AskResponse | undefined;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
-
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary >= 0) {
-      const block = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-
-      let eventName = "message";
-      const dataLines: string[] = [];
-
-      for (const line of block.split("\n")) {
-        if (line.startsWith("event:")) {
-          eventName = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          dataLines.push(line.slice(5).trimStart());
-        }
-      }
-
-      if (dataLines.length > 0) {
-        const payload = JSON.parse(dataLines.join("\n")) as unknown;
-
-        if (eventName === "progress") {
-          onProgress(payload as WorkflowProgress);
-        } else if (eventName === "result") {
-          result = payload as AskResponse;
-        }
-      }
-
-      boundary = buffer.indexOf("\n\n");
-    }
-
-    if (done) {
-      break;
-    }
-  }
-
-  if (!result) {
-    throw new Error("The workflow ended without a result.");
-  }
-
-  return result;
+  if (!response.ok) throw await responseError(response);
+  return response;
+}
+async function apiRequest<T>(path: string, parse: (value: unknown) => T, init?: RequestInit): Promise<T> {
+  const response = await request(path, init);
+  const payload: unknown = await response.json();
+  return parse(payload);
+}
+export function checkHealth(signal?: AbortSignal): Promise<HealthResponse> {
+  return apiRequest('/health', value => {
+    if (!object(value) || typeof value.status !== 'string' || typeof value.service !== 'string') throw new Error('Invalid health response.');
+    return {status: value.status, service: value.service};
+  }, {signal});
+}
+export function createSession(signal?: AbortSignal): Promise<{session_id: string}> {
+  return apiRequest('/sessions', value => {
+    if (!object(value) || typeof value.session_id !== 'string' || !value.session_id) throw new Error('Invalid session response.');
+    return {session_id: value.session_id};
+  }, {method: 'POST', signal});
+}
+export function getSession(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
+  return apiRequest(`/sessions/${encodeURIComponent(sessionId)}`, value => {
+    const session = parseSession(value);
+    if (session.session_id !== sessionId) throw new Error('Invalid session response.');
+    return session;
+  }, {signal});
+}
+export async function deleteSession(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await request(`/sessions/${encodeURIComponent(sessionId)}`, {method: 'DELETE', signal});
+}
+export function uploadPdfs(sessionId: string, files: File[], signal?: AbortSignal): Promise<UploadResponse> {
+  const data = new FormData(); files.forEach(file => data.append('files', file));
+  return apiRequest(`/sessions/${encodeURIComponent(sessionId)}/pdfs`, parseUpload, {method: 'POST', body: data, signal});
+}
+export function askQuestion(sessionId: string, question: string, signal?: AbortSignal): Promise<AskResponse> {
+  return apiRequest(`/sessions/${encodeURIComponent(sessionId)}/ask`, parseAskResponse, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question}), signal,
+  });
+}
+export async function askQuestionStream(sessionId: string, question: string,
+  onProgress: (progress: WorkflowProgress) => void, signal?: AbortSignal): Promise<AskResponse> {
+  const response = await request(`/sessions/${encodeURIComponent(sessionId)}/ask/stream`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({question}), signal,
+  });
+  if (!response.body) throw new Error('The streaming response is unavailable.');
+  return readWorkflowStream(response.body, onProgress, signal);
 }

@@ -70,6 +70,17 @@ export interface AskResponse {
   revision_count: number;
   timings: Record<string, number>;
   usage: LLMUsage;
+  execution?: Execution | null;
+}
+
+export type NodeStatus = 'running' | 'succeeded' | 'degraded' | 'failed' | 'cancelled' | 'skipped';
+export interface NodeOutcome { status: NodeStatus; reason: string | null }
+export interface Execution {
+  status: 'succeeded' | 'degraded' | 'failed' | 'cancelled';
+  generation_status: 'succeeded' | 'degraded' | 'failed' | 'cancelled';
+  reason: string | null;
+  persistence: 'saved' | 'failed' | 'not_attempted';
+  node_statuses: Record<string, NodeOutcome>;
 }
 
 export interface WorkflowProgress {
@@ -81,6 +92,7 @@ export interface WorkflowProgress {
   elapsed_ms?: number;
   timings: Record<string, number>;
   usage: LLMUsage;
+  node_statuses?: Record<string, NodeOutcome>;
 }
 
 export interface ConversationTurn {

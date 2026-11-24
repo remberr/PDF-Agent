@@ -14,6 +14,7 @@ export interface Translation {
     copy: string;
     new: string;
     confirmNew: string;
+    retryRestore: string;
   };
   nav: {
     label: string;
@@ -47,6 +48,7 @@ export interface Translation {
     askPlaceholder: string;
     addPdfPlaceholder: string;
     send: string;
+    cancel: string;
   };
   workflow: {
     trace: string;
@@ -90,6 +92,13 @@ export interface Translation {
     analysisFailed: string;
     pdfOnly: string;
     addPdfFirst: string;
+    cancelled: string;
+    invalidResponse: string;
+    streamInterrupted: string;
+    storageUnavailable: string;
+    executionUnknown: string;
+    generatedNotSaved: string;
+    degraded: string;
   };
 }
 
@@ -108,6 +117,7 @@ export const translations: Record<Language, Translation> = {
       copy: "Copy session ID",
       new: "New session",
       confirmNew: "Start a new PDF session?",
+      retryRestore: "Retry session connection",
     },
     nav: {
       label: "Workspace views",
@@ -145,6 +155,7 @@ export const translations: Record<Language, Translation> = {
       askPlaceholder: "Ask about your PDFs",
       addPdfPlaceholder: "Add a PDF to begin",
       send: "Send question",
+      cancel: "Cancel request",
     },
     workflow: {
       trace: "Trace",
@@ -197,6 +208,8 @@ export const translations: Record<Language, Translation> = {
         compare: "Compare Agent",
       },
       statuses: {
+        succeeded: "Succeeded", degraded: "Degraded", cancelled: "Cancelled", unknown: "Unconfirmed",
+        saved: "Saved", not_attempted: "Not saved",
         success: "Success",
         failed: "Failed",
         skipped: "Skipped",
@@ -212,6 +225,13 @@ export const translations: Record<Language, Translation> = {
       analysisFailed: "The analysis failed.",
       pdfOnly: "Only PDF files are supported.",
       addPdfFirst: "Please upload at least one PDF first.",
+      cancelled: "Request cancelled. In-flight model calls may still incur usage.",
+      invalidResponse: "The server response was invalid. The request was not repeated.",
+      streamInterrupted: "The stream ended without a complete result. The request was not repeated.",
+      storageUnavailable: "Browser storage is unavailable; this conversation may not survive a reload.",
+      executionUnknown: "Execution status is unavailable for this older result.",
+      generatedNotSaved: "The response could not be confirmed as saved. No generation was repeated.",
+      degraded: "This response used a fallback or contains incomplete agent results.",
     },
   },
   zh: {
@@ -228,6 +248,7 @@ export const translations: Record<Language, Translation> = {
       copy: "复制会话 ID",
       new: "新建会话",
       confirmNew: "确定要新建 PDF 会话吗？",
+      retryRestore: "重新连接会话",
     },
     nav: {
       label: "工作区视图",
@@ -265,6 +286,7 @@ export const translations: Record<Language, Translation> = {
       askPlaceholder: "针对 PDF 提问",
       addPdfPlaceholder: "添加 PDF 后开始提问",
       send: "发送问题",
+      cancel: "取消请求",
     },
     workflow: {
       trace: "执行轨迹",
@@ -317,6 +339,8 @@ export const translations: Record<Language, Translation> = {
         compare: "对比 Agent",
       },
       statuses: {
+        succeeded: "成功", degraded: "已降级", cancelled: "已取消", unknown: "未确认",
+        saved: "已保存", not_attempted: "未保存",
         success: "成功",
         failed: "失败",
         skipped: "已跳过",
@@ -332,6 +356,13 @@ export const translations: Record<Language, Translation> = {
       analysisFailed: "分析失败。",
       pdfOnly: "仅支持 PDF 文件。",
       addPdfFirst: "请先上传至少一份 PDF。",
+      cancelled: "请求已取消；在途模型调用仍可能产生用量。",
+      invalidResponse: "服务器响应格式无效，未自动重复请求。",
+      streamInterrupted: "连接已结束，但未收到完整结果；未自动重复请求。",
+      storageUnavailable: "浏览器存储不可用，刷新后可能无法恢复本地对话。",
+      executionUnknown: "旧结果没有可确认的执行状态。",
+      generatedNotSaved: "无法确认回答已保存，未重新调用模型。",
+      degraded: "本次回答发生回退或部分分析未完成。",
     },
   },
 };

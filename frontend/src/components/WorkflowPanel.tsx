@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import type { Translation } from "../i18n";
 import type { AskResponse, Language, WorkflowProgress } from "../types";
 import { formatCacheHit, formatEstimatedCost } from "../utils/usage";
+import { executionNotice } from '../utils/execution';
 
 interface WorkflowPanelProps {
   result?: AskResponse;
@@ -59,20 +60,22 @@ export function WorkflowPanel({ result, progress, t, language }: WorkflowPanelPr
   const completedNodes = progress?.completed_nodes ?? [];
 
   const nodeState = (node: string): string => {
+    const outcome = result?.execution?.node_statuses[node] ?? progress?.node_statuses?.[node];
+    if (outcome) return outcome.status === 'succeeded' ? 'complete' : outcome.status;
     if (progress?.node === node && progress.status === "running") {
       return "running";
     }
     if (progress?.node === node && progress.status === "failed") {
       return "failed";
     }
-    if (completedNodes.includes(node)) {
+    if (!result && completedNodes.includes(node)) {
       return "complete";
     }
     if (result) {
       if (node === "collaboration" && result.steps.length <= 1) {
         return "skipped";
       }
-      return "complete";
+      return "";
     }
     return "";
   };
@@ -85,6 +88,7 @@ export function WorkflowPanel({ result, progress, t, language }: WorkflowPanelPr
     if (state === "failed") {
       return t.workflow.statuses.failed;
     }
+    if (state === 'degraded' || state === 'cancelled') return t.workflow.statuses[state];
     if (state === "complete") {
       return completedLabel;
     }
@@ -142,6 +146,10 @@ export function WorkflowPanel({ result, progress, t, language }: WorkflowPanelPr
         <GitBranch size={19} aria-hidden="true" />
       </div>
 
+      {result && <div role="status" className={`execution-status ${result.execution?.status ?? 'unknown'}`}>
+        <strong>{t.workflow.statuses[result.execution?.status ?? 'unknown']}</strong>
+        {executionNotice(result, t) && <p>{executionNotice(result, t)}</p>}
+      </div>}
       <div className="workflow-rail">
         <div className={`workflow-node ${nodeState("planner")}`}>
           <div className="node-icon">

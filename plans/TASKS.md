@@ -115,7 +115,7 @@
 - 恢复实施：用户明确批准方案 A 的增量终态字段及 T07 适配，原确认阻塞已解除；保留上文历史复核记录。最终字段增加 `generation_status` 单独记录生成结果，整体 `status` 还受保存失败影响；无破坏性 Schema 迁移。
 
 <a id="t07"></a>
-### T07 · P1 · 待实施：前端恢复与流契约
+### T07 · P1 · 已完成（DONE）：前端恢复与流契约
 
 - 范围：`frontend/src/api.ts`、`App.tsx`、工作流面板和 types；区分 404 与临时网络故障，验证外部结果形状、处理存储失败、陈旧请求/会话切换与取消。
 - 验收：临时网络故障不删除可恢复的历史；失败不显示完成；跨会话结果不串写；按 T06 正确处理终态并保留双语费用/缓存三种状态。
@@ -519,3 +519,12 @@
 - 最终全量：`.venv/Scripts/python.exe -B -m unittest discover -s tests -t . -v`，独立回环pdf_agent_maturity_test（55440），POSTGRES/LEGACY_RECOVERY开启、真实PDF及付费关闭，209项206通过/3跳过，20.124秒，日志.evaluation-local/t06-full-pg-final.log。此前定向71/71通过；相对基线新增13项，无新增失败。
 - routing 9/9及controlled source-citations 1/1，CLI exit均0，均零LLM；报告.evaluation-local/t06-routing.json与t06-source.json。前端本项未改，复用本轮前置6/6及完整tsc/Vite通过记录。无Python lint/type-check配置。
 - 未执行：真实付费模型/Judge、真实BGE语义质量、远程CI、Docker镜像重建及生产/部署；均不作通过。保存提交遇连接中断可存在提交结果不确定，不自动重试；T05a补跨TTL/SQL等待，T07补客户端生命周期；T04/T02b不在授权范围。
+
+
+## T07 实施与验收（2026-11-24）
+
+- 前置T06提交6cf2e0c。复用既有React/TypeScript与Node测试器；新增protocol/sse/requestScope边界模块，API不再把unknown响应直接断言为业务类型；保留已有缓存三态和独立币种定价。
+- App显式取消、请求同步准入与旧回调隔离；临时恢复失败保留会话/历史，404单独处理、保留旧对话归档；存储异常显示警告；恢复按钮只GET，不重发生成。WorkflowPanel依据节点快照及execution显示失败/降级/保存失败，旧payload显示未确认。保留原新会话按钮经交互确认删除旧会话的业务行为，未自动改变保留策略。
+- RED：新增入口测试因尚无模块失败；随后组件/API测试复现旧结果全节点完成、保存失败未显示、跨会话响应未拒绝三个失败。最终`npm test`19/19（原6+新增13），`npm run build`完整tsc/Vite通过；日志.evaluation-local/t07-tests-final.log和t07-build-final.log。未降低断言。
+- 测试包括真实WorkflowPanel的React SSR双语组件渲染、逐字节UTF8/CRLF、空/截断/畸形/无终态、AbortSignal释放与完整result无需等待EOF、HTTP分类无自动重试、旧请求/存储失败。后端代码未改，复用T06最终全量209项206通过/3跳过和零LLM评估结果；未重复跑相同后端检查。
+- 限制：无真实浏览器挂载/E2E自动化；同步服务端在途工作不保证客户端abort即终止。严格响应校验的外部客户端需适配增量字段。未执行付费API、生产、远程CI、推送/部署。

@@ -59,7 +59,7 @@ T09a只校验实际控制JSON：Planner为非空且原始长度最多五项的�
 
 T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用原ContextVar/copy_context传播到并行步骤；所有LLM派发经过[统一网关](../utils/llm_client.py)原子预留/结算。API断连信号传给同一预算，Streamlit和评估也按工作流建立作用域；Agent/Judge的用量与预算各自独立。截止或耗尽后停止新派发并复用既有失败progress/result，不改Graph拓扑。实际usage不含预留；配置、I/O超时与不可立即终止在途请求的限制见[开发文档](DEVELOPMENT.md#llm-budgets)。
 
-普通回答和SSE共用iter_pdf_agent_events，保留progress与最终result，非逐Token流。T06已增量提供execution与节点结果快照，区分生成/保存成功、降级、失败、取消；Graph与保存异常不再被记录为整体成功。JSON/SSE正常传输共享终态，断流不可保证送达；关闭迭代器取消同一预算并清理Graph，不自动重放。在途SDK不能保证立即终止。字段、状态转换和旧客户端边界见[执行契约](EXECUTION.md)。T07前端适配、T05a在途TTL/SQL等待仍按TASKS推进。
+普通回答和SSE共用iter_pdf_agent_events，保留progress与最终result，非逐Token流。T06已增量提供execution与节点结果快照，区分生成/保存成功、降级、失败、取消；Graph与保存异常不再被记录为整体成功。JSON/SSE正常传输共享终态，断流不可保证送达；关闭迭代器取消同一预算并清理Graph，不自动重放。在途SDK不能保证立即终止。字段、状态转换和旧客户端边界见[执行契约](EXECUTION.md)。T07前端已适配；T05a在途TTL/SQL等待仍按TASKS推进。
 
 ## 4. 检索、引用与 Memory
 
@@ -85,7 +85,7 @@ session_store 保留原服务入口，转接 postgres_store。sessions、session
 
 ## 6. 前端与可观测性
 
-[App.tsx](../frontend/src/App.tsx) 用 Hooks 管理会话、文档、聊天和工作流状态，localStorage 保存本地会话内容；三个面板负责展示。[api.ts](../frontend/src/api.ts) 封装 fetch 和 POST SSE 解析，[types.ts](../frontend/src/types.ts) 定义共享类型，[i18n.ts](../frontend/src/i18n.ts) 管理双语。TypeScript strict 已启用；网络数据主要靠类型断言，尚无完整运行时验证或请求取消机制。恢复会话时网络错误与不存在的会话未充分区分。
+[App.tsx](../frontend/src/App.tsx) 用 Hooks 管理会话、文档、聊天和工作流状态，localStorage 保存本地会话内容；三个面板负责展示。[api.ts](../frontend/src/api.ts) 封装 fetch 和 POST SSE 解析，[types.ts](../frontend/src/types.ts) 定义共享类型，[i18n.ts](../frontend/src/i18n.ts) 管理双语。TypeScript strict 已启用。protocol.ts在边界校验结果、progress、usage和会话/上传结构；SSE在完整终态或取消/错误时释放reader，不自动重发。RequestScope按请求与会话使旧回调失效，页面支持显式取消；临时恢复故障保留本地会话，404才失效会话入口，存储异常仅提示。旧结果缺execution时显示未确认；严格外部Schema客户端需适配增量字段。
 
 [observability.py](../utils/observability.py) 以请求上下文记录 JSON 日志、耗时、按模型/操作汇总用量，并区分缓存真实零命中、不可用和无调用。[pricing.py](../utils/pricing.py) 按调用开始时间选择北京时间峰谷价；USD/CNY 使用独立表，环境变量覆盖的是 USD 峰值单价。价格表注明核实日期，本文不将它宣称为实时价格；[节假日数据](../utils/china_holidays.json) 目前只覆盖 2026 年，未知年份潜在峰时估价不可用。
 

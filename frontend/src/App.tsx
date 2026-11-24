@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import {
+  ApiError,
   askQuestionStream,
   checkHealth,
   createSession,
@@ -16,6 +17,8 @@ import {
   getSession,
   uploadPdfs,
 } from "./api";
+import { RequestScope, readConversation, safeStorage } from './requestScope';
+import { executionNotice } from './utils/execution';
 import { ChatPanel } from "./components/ChatPanel";
 import { DocumentsPanel } from "./components/DocumentsPanel";
 import { WorkflowPanel } from "./components/WorkflowPanel";
@@ -44,6 +47,9 @@ function localizedError(
     return fallback;
   }
 
+  if (error.name === 'AbortError') return t.errors.cancelled;
+  if (error.message.startsWith('Invalid ')) return t.errors.invalidResponse;
+  if (error.message === 'The workflow ended without a complete result.') return t.errors.streamInterrupted;
   if (error.message === "Cannot reach the PDF Agent API.") {
     return t.errors.apiUnavailable;
   }
@@ -57,24 +63,6 @@ function localizedError(
   return error.message || fallback;
 }
 
-function readConversation(sessionId: string): ConversationTurn[] {
-  try {
-    const value = localStorage.getItem(conversationKey(sessionId));
-    const parsed = value ? (JSON.parse(value) as ConversationTurn[]) : [];
-    return Array.isArray(parsed)
-      ? parsed.map((turn) => ({
-          ...turn,
-          pending: false,
-          result: turn.result
-            ? { ...turn.result, timings: turn.result.timings ?? {} }
-            : undefined,
-        }))
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 function emptySession(sessionId: string): SessionDetail {
   return {
     session_id: sessionId,
@@ -86,7 +74,8 @@ function emptySession(sessionId: string): SessionDetail {
 }
 
 function App() {
-  const bootstrapStarted = useRef(false);
+  const requests = useRef(new RequestScope());
+  const [storageWarning, setStorageWarning] = useState(false);
   const [backendStatus, setBackendStatus] =
     useState<BackendStatus>("checking");
   const [session, setSession] = useState<SessionDetail | null>(null);
@@ -101,75 +90,60 @@ function App() {
   const [mobileView, setMobileView] = useState<MobileView>("chat");
   const [copied, setCopied] = useState(false);
   const [language, setLanguage] = useState<Language>(() =>
-    localStorage.getItem(LANGUAGE_STORAGE_KEY) === "zh" ? "zh" : "en",
+    safeStorage('get', LANGUAGE_STORAGE_KEY) === "zh" ? "zh" : "en",
   );
   const t = translations[language];
 
   useEffect(() => {
-    if (bootstrapStarted.current) {
-      return;
-    }
-    bootstrapStarted.current = true;
-
+    const scope = requests.current;
+    const lease = scope.start('bootstrap');
+    const current = () => scope.isCurrent(lease);
     const bootstrap = async () => {
-      try {
-        await checkHealth();
-        setBackendStatus("online");
-      } catch {
-        setBackendStatus("offline");
-      }
-
-      const storedSessionId = localStorage.getItem(SESSION_STORAGE_KEY);
-      if (storedSessionId) {
+      try { await checkHealth(lease.signal); if (current()) setBackendStatus('online'); }
+      catch { if (current()) setBackendStatus('offline'); }
+      if (!current()) return;
+      const stored = safeStorage('get', SESSION_STORAGE_KEY);
+      if (typeof stored === 'string' && stored) {
         try {
-          const restoredSession = await getSession(storedSessionId);
-          setSession(restoredSession);
-          setTurns(readConversation(storedSessionId));
-          setConversationReady(true);
+          const restored = await getSession(stored, lease.signal);
+          if (!current()) return;
+          setSession(restored); setTurns(readConversation(stored));
           return;
-        } catch {
-          localStorage.removeItem(SESSION_STORAGE_KEY);
-          localStorage.removeItem(conversationKey(storedSessionId));
+        } catch (error) {
+          if (!current()) return;
+          if (!(error instanceof ApiError) || error.status !== 404) {
+            // Preserve the session and cached turns on transport/temporary errors.
+            setSession(emptySession(stored)); setTurns(readConversation(stored));
+            setBackendStatus('offline'); setUploadError(translations[language].errors.apiUnavailable);
+            return;
+          }
+          safeStorage('remove', SESSION_STORAGE_KEY);
+          // Keep the old conversation archive even when the server reports 404.
         }
       }
-
       try {
-        const created = await createSession();
-        localStorage.setItem(SESSION_STORAGE_KEY, created.session_id);
-        setSession(emptySession(created.session_id));
-        setTurns([]);
-      } catch {
-        setBackendStatus("offline");
-      } finally {
-        setConversationReady(true);
-      }
+        const created = await createSession(lease.signal);
+        if (!current()) return;
+        if (safeStorage('set', SESSION_STORAGE_KEY, created.session_id) === false) setStorageWarning(true);
+        setSession(emptySession(created.session_id)); setTurns([]);
+      } catch { if (current()) setBackendStatus('offline'); }
     };
-
-    void bootstrap();
+    void bootstrap().finally(() => { if (current()) setConversationReady(true); scope.finish(lease); });
+    return () => scope.invalidate();
   }, []);
 
   useEffect(() => {
-    if (session && conversationReady) {
-      localStorage.setItem(
-        conversationKey(session.session_id),
-        JSON.stringify(turns),
-      );
+    if (session && conversationReady && safeStorage('set', conversationKey(session.session_id), JSON.stringify(turns)) === false) {
+      setStorageWarning(true);
     }
   }, [conversationReady, session, turns]);
 
   useEffect(() => {
-    localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    if (safeStorage('set', LANGUAGE_STORAGE_KEY, language) === false) setStorageWarning(true);
+    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
   }, [language]);
 
-  const latestResult = useMemo<AskResponse | undefined>(() => {
-    for (let index = turns.length - 1; index >= 0; index -= 1) {
-      if (turns[index].result) {
-        return turns[index].result;
-      }
-    }
-    return undefined;
-  }, [turns]);
+  const latestResult = useMemo<AskResponse | undefined>(() => turns.at(-1)?.result, [turns]);
 
   const progressLabel = useMemo(() => {
     if (!workflowProgress) {
@@ -190,117 +164,100 @@ function App() {
     return `${nodeName} · ${status}`;
   }, [t, workflowProgress]);
 
-  const handleNewSession = async () => {
-    if (turns.length > 0 && !window.confirm(t.session.confirmNew)) {
-      return;
-    }
+  const cancelAsk = () => {
+    requests.current.cancel('ask');
+    setAsking(false);
+    setTurns(current => current.map(turn => turn.pending ? {...turn, pending: false, error: t.errors.cancelled} : turn));
+    setWorkflowProgress(current => current ? {...current, status: 'failed', node_statuses: {
+      ...current.node_statuses, [current.node]: {status: 'cancelled', reason: 'cancelled'},
+    }} : current);
+  };
 
-    setUploadError("");
-    setQuestion("");
-    setWorkflowProgress(undefined);
+  const handleNewSession = async () => {
+    const scope = requests.current;
+    if (scope.has('session-change')) return;
+    if (turns.length > 0 && !window.confirm(t.session.confirmNew)) return;
+    scope.invalidate(); cancelAsk();
+    setUploading(false); setUploadError(''); setQuestion(''); setWorkflowProgress(undefined);
+    const lease = scope.start('session-change');
     try {
       const previousSessionId = session?.session_id;
-      const created = await createSession();
-
+      const created = await createSession(lease.signal);
+      if (!scope.isCurrent(lease)) return;
       if (previousSessionId) {
-        await deleteSession(previousSessionId).catch(() => undefined);
-        localStorage.removeItem(conversationKey(previousSessionId));
+        await deleteSession(previousSessionId, lease.signal).catch(() => undefined);
+        if (!scope.isCurrent(lease)) return;
+        if (safeStorage('remove', conversationKey(previousSessionId)) === false) setStorageWarning(true);
       }
-
-      localStorage.setItem(SESSION_STORAGE_KEY, created.session_id);
-      setSession(emptySession(created.session_id));
-      setTurns([]);
-      setBackendStatus("online");
-      setMobileView("documents");
+      if (safeStorage('set', SESSION_STORAGE_KEY, created.session_id) === false) setStorageWarning(true);
+      setSession(emptySession(created.session_id)); setTurns([]);
+      setBackendStatus('online'); setMobileView('documents'); setConversationReady(true);
     } catch (error) {
-      setBackendStatus("offline");
-      setUploadError(localizedError(error, t, t.errors.createSession));
-    }
+      if (scope.isCurrent(lease)) { setBackendStatus('offline'); setUploadError(localizedError(error, t, t.errors.createSession)); }
+    } finally { scope.finish(lease); }
+  };
+
+  const retrySession = async () => {
+    if (!session) return;
+    const scope = requests.current;
+    if (scope.has('ask') || scope.has('upload') || scope.has('session-change')) return;
+    const lease = scope.start('restore', session.session_id);
+    try {
+      const restored = await getSession(lease.sessionId, lease.signal);
+      if (!scope.isCurrent(lease)) return;
+      setSession(current => current?.session_id === lease.sessionId ? restored : current);
+      setBackendStatus('online'); setUploadError('');
+    } catch (error) {
+      if (scope.isCurrent(lease)) setUploadError(localizedError(error, t, t.errors.apiUnavailable));
+    } finally { scope.finish(lease); }
   };
 
   const handleUpload = async (files: File[]) => {
-    if (!session || files.length === 0) {
-      return;
-    }
-
-    setUploading(true);
-    setUploadError("");
-    setWorkflowProgress(undefined);
+    const scope = requests.current;
+    if (!session || !files.length || scope.has('upload') || scope.has('ask') || scope.has('session-change')) return;
+    scope.cancel('restore');
+    const lease = scope.start('upload', session.session_id);
+    setUploading(true); setUploadError(''); setWorkflowProgress(undefined);
     try {
-      const response = await uploadPdfs(session.session_id, files);
-      setSession((current) =>
-        current
-          ? {
-              ...current,
-              loaded_pdfs: response.loaded_pdfs,
-              total_documents: response.total_documents,
-              has_vectorstore: true,
-            }
-          : current,
-      );
-      setBackendStatus("online");
-      setMobileView("chat");
-    } catch (error) {
-      setUploadError(localizedError(error, t, t.errors.uploadFailed));
-    } finally {
-      setUploading(false);
-    }
+      const response = await uploadPdfs(lease.sessionId, files, lease.signal);
+      if (!scope.isCurrent(lease)) return;
+      if (response.session_id !== lease.sessionId) throw new Error('Invalid upload response.');
+      setSession(current => current?.session_id === lease.sessionId ? {...current,
+        loaded_pdfs: response.loaded_pdfs, total_documents: response.total_documents, has_vectorstore: true} : current);
+      setBackendStatus('online'); setMobileView('chat');
+    } catch (error) { if (scope.isCurrent(lease)) setUploadError(localizedError(error, t, t.errors.uploadFailed)); }
+    finally { if (scope.isCurrent(lease)) setUploading(false); scope.finish(lease); }
   };
 
   const handleAsk = async (suggestedQuestion?: string) => {
-    if (!session || !session.has_vectorstore || asking) {
-      return;
-    }
-
+    const scope = requests.current;
+    if (!session?.has_vectorstore || scope.has('ask') || scope.has('upload') || scope.has('session-change')) return;
+    scope.cancel('restore');
     const submittedQuestion = (suggestedQuestion ?? question).trim();
-    if (!submittedQuestion) {
-      return;
-    }
-
+    if (!submittedQuestion) return;
+    const lease = scope.start('ask', session.session_id);
     const turnId = crypto.randomUUID();
-    const pendingTurn: ConversationTurn = {
-      id: turnId,
-      question: submittedQuestion,
-      pending: true,
-    };
-
-    setQuestion("");
-    setAsking(true);
-    setWorkflowProgress(undefined);
-    setTurns((current) => [...current, pendingTurn]);
-
+    setQuestion(''); setAsking(true); setWorkflowProgress(undefined);
+    setTurns(current => [...current, {id: turnId, question: submittedQuestion, pending: true}]);
     try {
-      const result = await askQuestionStream(
-        session.session_id,
-        submittedQuestion,
-        setWorkflowProgress,
-      );
-      setTurns((current) =>
-        current.map((turn) =>
-          turn.id === turnId ? { ...turn, result, pending: false } : turn,
-        ),
-      );
-      setSession((current) =>
-        current
-          ? { ...current, message_count: current.message_count + 2 }
-          : current,
-      );
-      setBackendStatus("online");
+      const result = await askQuestionStream(lease.sessionId, submittedQuestion,
+        progress => { if (scope.isCurrent(lease)) setWorkflowProgress(progress); }, lease.signal);
+      if (!scope.isCurrent(lease)) return;
+      setTurns(current => current.map(turn => turn.id === turnId ? {
+        ...turn, result, pending: false, error: executionNotice(result, t) || undefined,
+      } : turn));
+      if (result.execution?.persistence === 'saved') {
+        setSession(current => current?.session_id === lease.sessionId ? {...current, message_count: current.message_count + 2} : current);
+      }
+      setBackendStatus('online');
     } catch (error) {
-      setTurns((current) =>
-        current.map((turn) =>
-          turn.id === turnId
-            ? {
-                ...turn,
-                pending: false,
-                error: localizedError(error, t, t.errors.analysisFailed),
-              }
-            : turn,
-        ),
-      );
-    } finally {
-      setAsking(false);
-    }
+      if (!scope.isCurrent(lease)) return;
+      setTurns(current => current.map(turn => turn.id === turnId ? {...turn, pending: false,
+        error: localizedError(error, t, t.errors.analysisFailed)} : turn));
+      setWorkflowProgress(current => current ? {...current, status: 'failed', node_statuses: {
+        ...current.node_statuses, [current.node]: {status: 'failed', reason: 'transport_interrupted'},
+      }} : current);
+    } finally { if (scope.isCurrent(lease)) setAsking(false); scope.finish(lease); }
   };
 
   const copySessionId = async () => {
@@ -376,13 +333,14 @@ function App() {
             onClick={handleNewSession}
             title={t.session.new}
             aria-label={t.session.new}
-            disabled={asking || uploading}
           >
             <Plus size={19} />
           </button>
         </div>
       </header>
 
+      {storageWarning && <p role="alert">{t.errors.storageUnavailable}</p>}
+      {backendStatus === 'offline' && session && <button type="button" onClick={retrySession}>{t.session.retryRestore}</button>}
       <nav className="mobile-tabs" aria-label={t.nav.label}>
         <button
           className={mobileView === "documents" ? "active" : ""}
@@ -429,6 +387,7 @@ function App() {
             progressLabel={progressLabel}
             onQuestionChange={setQuestion}
             onAsk={handleAsk}
+            onCancel={cancelAsk}
             t={t}
           />
         </div>

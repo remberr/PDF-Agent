@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import re
 import sys
 from collections import defaultdict
 from contextlib import contextmanager
@@ -14,24 +13,13 @@ from uuid import uuid4
 
 from utils.pricing import MODEL_ALIASES, MODEL_PRICING, PRICE_ENV_VARS, get_model_pricing, _is_peak_time
 from utils.llm_budget import RequestBudget
-
-REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+from utils.log_privacy import EVENTS, METHODS, http_log_route, log_fields
 
 _request_id_var = ContextVar("request_id", default=None)
 _session_id_var = ContextVar("session_id", default=None)
 _usage_tracker_var = ContextVar("usage_tracker", default=None)
 _logging_lock = Lock()
 _logging_configured = False
-
-
-def _json_safe(value):
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe(item) for item in value]
-    return str(value)
 
 
 class JsonFormatter(logging.Formatter):
@@ -64,33 +52,46 @@ class JsonFormatter(logging.Formatter):
         return "\n".join(lines)
 
     def format(self, record):
+        event = getattr(record, 'event', None)
+        event = event if isinstance(event, str) and event in EVENTS else 'library_log'
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "event": getattr(record, "event", record.getMessage()),
-            "message": record.getMessage(),
+            "event": event,
+            "message": event,
         }
 
         request_id = _request_id_var.get()
-        session_id = _session_id_var.get()
         if request_id:
             payload["request_id"] = request_id
-        if session_id:
-            payload["session_id"] = session_id
 
         fields = getattr(record, "structured_fields", None)
-        if fields:
-            payload.update(_json_safe(fields))
+        if isinstance(fields, dict) and event != 'library_log':
+            payload.update(log_fields(fields))
 
-        if record.exc_info:
-            payload["exception"] = {
-                "type": record.exc_info[0].__name__,
-                "message": "Exception details omitted for privacy.",
-                "stacktrace": self.formatException(record.exc_info),
-            }
+        captured = getattr(record, 'safe_exception', None)
+        exception = captured.to_dict() if isinstance(captured, _SafeException) else None
+        if record.exc_info and record.exc_info[0]:
+            exception = _exception_metadata(record.exc_info).to_dict()
+        if exception is not None:
+            payload['exception'] = exception
 
         return json.dumps(payload, ensure_ascii=False)
+
+
+@dataclass(frozen=True)
+class _SafeException:
+    error_type: str
+    stacktrace: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {'type': self.error_type, 'stacktrace': self.stacktrace,
+                'message': 'Exception details omitted for privacy.'}
+
+
+def _exception_metadata(exc_info) -> _SafeException:
+    return _SafeException(exc_info[0].__name__, JsonFormatter().formatException(exc_info))
 
 
 def configure_logging():
@@ -99,34 +100,36 @@ def configure_logging():
     global _logging_configured
 
     with _logging_lock:
-        if _logging_configured:
-            return
+        if not _logging_configured:
+            level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+            level = getattr(logging, level_name, logging.INFO)
+            handler = logging.StreamHandler(sys.stdout)
+            handler.setFormatter(JsonFormatter())
+            root_logger = logging.getLogger()
+            root_logger.handlers = [handler]
+            root_logger.setLevel(level)
+            _logging_configured = True
 
-        level_name = os.getenv("LOG_LEVEL", "INFO").upper()
-        level = getattr(logging, level_name, logging.INFO)
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(JsonFormatter())
-
-        root_logger = logging.getLogger()
-        root_logger.handlers = [handler]
-        root_logger.setLevel(level)
-
-        for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-            uvicorn_logger = logging.getLogger(logger_name)
-            uvicorn_logger.handlers = []
-            uvicorn_logger.propagate = True
-
-        _logging_configured = True
+        for name in ('uvicorn', 'uvicorn.error', 'httpx', 'httpx2', 'httpcore', 'openai', 'pypdf', 'sqlalchemy'):
+            child = logging.getLogger(name)
+            child.handlers = []
+            child.propagate = True
+        access = logging.getLogger('uvicorn.access')
+        access.handlers = []
+        access.propagate = False
+        access.disabled = True
 
 
 def log_event(logger, level, event, exc_info=None, **fields):
+    event = event if isinstance(event, str) and event in EVENTS else 'application_event'
+    captured_error = sys.exc_info() if exc_info else None
     logger.log(
         level,
         event,
-        exc_info=exc_info,
         extra={
             "event": event,
-            "structured_fields": fields,
+            "structured_fields": log_fields(fields),
+            "safe_exception": _exception_metadata(captured_error) if captured_error and captured_error[0] else None,
         },
     )
 
@@ -430,16 +433,12 @@ class RequestContextMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = {
-            key.decode("latin-1").lower(): value.decode("latin-1")
-            for key, value in scope.get("headers", [])
-        }
-        candidate = headers.get("x-request-id", "").strip()
-        request_id = (
-            candidate if REQUEST_ID_PATTERN.fullmatch(candidate) else uuid4().hex
-        )
+        request_id = uuid4().hex
         scope.setdefault("state", {})["request_id"] = request_id
         path = scope.get('path', '').rstrip('/')
+        route = http_log_route(path)
+        method = scope.get('method')
+        method = method if method in METHODS else 'OTHER'
         budget = None
         if scope.get('method') == 'POST' and path.startswith('/sessions/') and path.endswith(('/ask', '/ask/stream')):
             budget = RequestBudget()
@@ -459,14 +458,13 @@ class RequestContextMiddleware:
 
             if message["type"] == "http.response.start":
                 status_code = message["status"]
-                response_headers = list(message.get("headers", []))
-                if not any(
-                    key.lower() == b"x-request-id"
-                    for key, _value in response_headers
-                ):
-                    response_headers.append(
-                        (b"x-request-id", request_id.encode("ascii"))
-                    )
+                response_headers = [(key, value) for key, value in message.get("headers", [])
+                                    if key.lower() != b"x-request-id"]
+                response_headers.append((b"x-request-id", request_id.encode("ascii")))
+                if route.startswith('/sessions'):
+                    response_headers = [(key, value) for key, value in response_headers
+                                        if key.lower() != b"cache-control"]
+                    response_headers.append((b"cache-control", b"no-store"))
                 message["headers"] = response_headers
 
             if (
@@ -479,8 +477,8 @@ class RequestContextMiddleware:
                     self.logger,
                     logging.INFO,
                     "http_request_completed",
-                    method=scope["method"],
-                    path=scope["path"],
+                    method=method,
+                    path=route,
                     status_code=status_code,
                     duration_ms=round(
                         (perf_counter() - started_at) * 1000,
@@ -495,8 +493,8 @@ class RequestContextMiddleware:
                 self.logger,
                 logging.INFO,
                 "http_request_started",
-                method=scope["method"],
-                path=scope["path"],
+                method=method,
+                path=route,
             )
             try:
                 await self.app(scope, receive_with_context, send_with_context)
@@ -506,8 +504,8 @@ class RequestContextMiddleware:
                     logging.ERROR,
                     "http_request_failed",
                     exc_info=True,
-                    method=scope["method"],
-                    path=scope["path"],
+                    method=method,
+                    path=route,
                     duration_ms=round(
                         (perf_counter() - started_at) * 1000,
                         2,

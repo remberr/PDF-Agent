@@ -39,7 +39,7 @@ docker compose -f compose.vector.yaml exec db createdb -U pdf_agent pdf_agent_lo
 docker compose -f compose.vector.yaml --profile app up -d --build --wait
 ```
 
-Run the `createdb` command only if `pdf_agent_local` does not exist. The migration service runs before the API. Open [the workspace](http://127.0.0.1:8001), [API docs](http://127.0.0.1:8001/docs), or [the health check](http://127.0.0.1:8001/health). The first image build downloads the pinned BGE-M3 model; the running container loads it from its local cache.
+Run `createdb` only if `pdf_agent_local` does not exist. The migration service runs before the API. Use the [API docs](http://127.0.0.1:8001/docs) and [health check](http://127.0.0.1:8001/health) on the container's HTTP port. For the browser workspace, use the [local HTTPS frontend](docs/DEVELOPMENT.md#运行和调试) with `PDF_AGENT_DEV_BACKEND=http://127.0.0.1:8001`, or put the container behind a same-origin HTTPS reverse proxy. The first image build downloads the pinned BGE-M3 model for the runtime cache.
 
 For development without the application container, use Python 3.11 and Node.js 22. See [the development guide](docs/DEVELOPMENT.md) and [local PostgreSQL setup](docs/LOCAL_STORAGE.md) for the host-side URL, Alembic, model cache, and frontend commands. The default `compose.yaml` requires a `DATABASE_URL` that the container can reach and whose schema is already migrated.
 
@@ -76,7 +76,8 @@ Local acceptance covered PDF upload, BGE-M3 vector writes, Source Agent, SSE, re
 
 ## Data and deployment
 
-- Session expiry is off by default. Enable `SESSION_RETENTION_ENABLED` only where deletion is intended. Deleting a session also removes its messages, documents, and vectors.
+- Each anonymous session has a 24-hour access credential. Browsers receive a secure cookie. API scripts can request a Bearer token at creation. Browser storage keeps only the active session locator and language preference, so visible chat history clears on reload.
+- Database retention is off by default. Enable `SESSION_RETENTION_ENABLED` only where deletion is intended. Deleting a session also removes its messages, documents, and vectors. Credential expiry leaves the stored data subject to that retention policy.
 - See [local storage and recovery](docs/LOCAL_STORAGE.md) before moving any legacy SQLite/FAISS data. The offline migration tools use [separate dependencies](requirements.migration.txt).
 - PostgreSQL/pgvector has been verified locally. The Render deployment and production database were outside this rollout; the existing blueprint is not a PostgreSQL deployment guide.
 

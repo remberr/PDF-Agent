@@ -282,7 +282,8 @@ class BodyLimitTests(unittest.IsolatedAsyncioTestCase):
                 })
             self.assertEqual(response.status_code, 413)
             self.assertEqual(response.headers.get('Access-Control-Allow-Origin'), expected_origin)
-            self.assertEqual(response.headers['X-Request-ID'], 'input-limit-rejection')
+            self.assertRegex(response.headers['X-Request-ID'], r'^[a-f0-9]{32}$')
+            self.assertEqual(response.headers['Cache-Control'], 'no-store')
             lookup.assert_not_called()
 
     async def test_valid_unicode_questions_accept_json_surrogate_pair_escapes(self):

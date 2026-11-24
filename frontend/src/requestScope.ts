@@ -1,6 +1,3 @@
-import type { ConversationTurn } from './types';
-import { object, parseAskResponse } from './protocol';
-
 interface Lease { signal: AbortSignal; sessionId: string; controller: AbortController }
 export class RequestScope {
   private leases = new Map<string, Lease>();
@@ -27,20 +24,15 @@ export function safeStorage(action: 'get' | 'set' | 'remove', key: string, value
     return true;
   } catch { return action === 'get' ? null : false; }
 }
-export function readConversation(sessionId: string, store?: Store): ConversationTurn[] {
+export function purgeLegacySessionStorage(store?: Pick<Storage, 'length' | 'key' | 'removeItem'>): boolean {
   try {
-    const value = safeStorage('get', `pdf-agent-conversation-${sessionId}`, undefined, store);
-    const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : [];
-    if (!Array.isArray(parsed)) return [];
-    const turns: ConversationTurn[] = [];
-    for (const turn of parsed) {
-      if (!object(turn) || typeof turn.id !== 'string' || typeof turn.question !== 'string') continue;
-      try {
-        turns.push({id: turn.id, question: turn.question, pending: false,
-          result: turn.result ? parseAskResponse(turn.result) : undefined,
-          error: typeof turn.error === 'string' ? turn.error : undefined});
-      } catch { /* Keep other valid turns; untrusted stored results cannot reach UI. */ }
+    const storage = store ?? globalThis.localStorage;
+    const obsolete = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key === 'pdf-agent-session' || key?.startsWith('pdf-agent-conversation-')) obsolete.push(key);
     }
-    return turns;
-  } catch { return []; }
+    for (const key of obsolete) storage.removeItem(key);
+    return true;
+  } catch { return false; }
 }

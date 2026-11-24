@@ -217,7 +217,7 @@ def run(args):
                         output = _run_live_case(case, graph, vectorstore, case.get('pdf_files'))
                     agent_tracker.budget.check()
                 except Exception as exc:
-                    agent_error = f'{type(exc).__name__}: {exc}'
+                    agent_error = type(exc).__name__
             elapsed = round((perf_counter() - started) * 1000, 2)
             output['latency_ms'] = elapsed
             agent_usage = agent_tracker.summary() | {'elapsed_ms': elapsed}
@@ -252,7 +252,7 @@ def run(args):
                         # Usage was recorded before parsing/validation; preserve it
                         # even on transport errors, bad JSON or invalid scores.
                         result['judge_status'] = 'failed'
-                        result['llm_judge_error'] = f'{type(exc).__name__}: {exc}'
+                        result['llm_judge_error'] = type(exc).__name__
                 judge_elapsed = round((perf_counter() - started) * 1000, 2)
             elif args.llm_judge:
                 result['judge_status'] = 'skipped_agent_error'

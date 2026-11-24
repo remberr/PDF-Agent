@@ -70,6 +70,12 @@ npm run build
 
 `python -B -m unittest tests.test_execution_contract -v` 使用Fake/Mock覆盖JSON/SSE一致性、成功/部分失败/空输出、Planner/Reviewer降级、Graph异常/空流/截断、预算/截止/取消、保存失败只尝试一次、候选历史回滚、关闭Graph及并发状态隔离。原HTTP/SSE路由和usage回归保留；完整PG suite覆盖真实事务下的Source JSON/SSE，Embedding采用合成向量，不证明BGE或真实模型质量。契约定义见[EXECUTION.md](EXECUTION.md)。
 
+## 匿名会话与最少披露回归（T04 / T02b）
+
+运行 `python -B -m unittest tests.test_session_access tests.test_observability tests.test_error_privacy tests.test_evaluation_usage -v`，检验鉴权拒绝前无请求体读取、Origin、统一错误、服务端请求关联、日志及报告脱敏。按下节隔离规则启用 PG 后运行 `python -B -m unittest tests.test_pgvector_storage tests.test_input_limits_pg tests.test_session_concurrency -v`，覆盖 Cookie 与 Bearer、跨会话、凭据有效期、0003 升级、在途删除及真实事务下的 Source JSON/SSE。测试使用合成数据与假客户端。
+
+前端运行 `npm test` 和 `npm run build`。按[本地 HTTPS 配置](DEVELOPMENT.md#运行和调试)用隔离浏览器配置检查两标签、刷新、重开、清除和删除 Cookie、旧应用键清理，并确认新的聊天和引用没有写入 Web Storage。用合成标记验证 Uvicorn 默认启动和 Vite 代理错误输出。托管边缘和生产日志需在有授权的环境单独检查。
+
 ## PostgreSQL 连接集成测试（T15a）
 
 `test_db_config.py` 和 `test_postgres_connection.py` 中的安全入口测试默认离线运行。7 项真实 PostgreSQL 连接测试默认跳过，不计为通过。先按 [开发文档](DEVELOPMENT.md#postgresql-迁移开发环境t15a) 启动独立 PG17 测试库并设置 TEST_DATABASE_URL，再在关闭付费开关的终端执行：

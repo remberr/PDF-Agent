@@ -4,9 +4,9 @@ import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
@@ -59,6 +59,7 @@ async def session_cleanup_loop():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    configure_logging()
     await asyncio.to_thread(init_session_store)
     await asyncio.to_thread(cleanup_expired_sessions)
     cleanup_task = asyncio.create_task(session_cleanup_loop())
@@ -94,6 +95,16 @@ app.add_middleware(
 app.add_middleware(RequestContextMiddleware)
 
 app.include_router(router)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, _error: Exception) -> JSONResponse:
+    request_id = getattr(request.state, 'request_id', None)
+    headers = {'Cache-Control': 'no-store'}
+    if request_id:
+        headers['X-Request-ID'] = request_id
+    return JSONResponse({'detail': 'An unexpected server error occurred.'},
+                        status_code=500, headers=headers)
 
 if (FRONTEND_DIST / "assets").is_dir():
     app.mount(

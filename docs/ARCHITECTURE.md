@@ -40,7 +40,7 @@ flowchart TD
 - 输入限额与有限并发由 T01 实现，请求级 LLM 预算由 T03 实现。T04 使用每会话随机所有者凭据统一保护详情、删除、上传及两种问答，在正文解析前鉴权。浏览器使用同源安全 Cookie，脚本使用 Bearer。数据库向量隔离与 HTTP 鉴权各有职责。匿名创建仍受外围资源治理限制，现有配置尚无身份级速率或累计存储配额。
 - 未实现应用层认证/所有权；资源和费用保护不能代替访问方案。上游平台是否另有限制待验证。
 - 解析、Embedding和入库在工作线程执行，模型计算不占数据库连接；复制分块计量。单页解压和原生计算仍无硬资源沙箱。
-- 原始 PDF 临时文件被删除，但索引包含文本片段，PostgreSQL/浏览器也保留会话数据，不能称为“处理后不留数据”。
+- 原始 PDF 临时文件处理后删除。PostgreSQL 仍保存文本片段、向量和聊天上下文，保留期限由数据库策略决定。浏览器页面内存保留当前显示内容。
 
 ## 3. Agent 状态与执行
 
@@ -85,11 +85,11 @@ session_store 保留原服务入口，转接 postgres_store。sessions、session
 
 ## 6. 前端与可观测性
 
-[App.tsx](../frontend/src/App.tsx) 用 Hooks 管理会话、文档、聊天和工作流状态，localStorage 保存本地会话内容；三个面板负责展示。[api.ts](../frontend/src/api.ts) 封装 fetch 和 POST SSE 解析，[types.ts](../frontend/src/types.ts) 定义共享类型，[i18n.ts](../frontend/src/i18n.ts) 管理双语。TypeScript strict 已启用。protocol.ts在边界校验结果、progress、usage和会话/上传结构；SSE在完整终态或取消/错误时释放reader，不自动重发。RequestScope按请求与会话使旧回调失效，页面支持显式取消；临时恢复故障保留本地会话，404才失效会话入口，存储异常仅提示。旧结果缺execution时显示未确认；严格外部Schema客户端需适配增量字段。
+[App.tsx](../frontend/src/App.tsx) 管理会话、文档、聊天和工作流状态。Web Storage 只保存活动定位值和语言，首次打开清理废弃会话键与旧问答缓存。刷新或重开可凭当前 Cookie 恢复服务端文档与上下文。聊天展示只存在于当前页面内存。[api.ts](../frontend/src/api.ts) 使用同源 fetch、校验响应与 POST SSE 终态。RequestScope 隔离陈旧回调，临时恢复故障保留定位值，确定的 404 清除当前入口。旧回答缺少 execution 时显示未确认。
 
 [observability.py](../utils/observability.py) 以请求上下文记录 JSON 日志、耗时、按模型/操作汇总用量，并区分缓存真实零命中、不可用和无调用。[pricing.py](../utils/pricing.py) 按调用开始时间选择北京时间峰谷价；USD/CNY 使用独立表，环境变量覆盖的是 USD 峰值单价。价格表注明核实日期，本文不将它宣称为实时价格；[节假日数据](../utils/china_holidays.json) 目前只覆盖 2026 年，未知年份潜在峰时估价不可用。
 
-评估分别汇总 Agent/Judge/total usage，Judge 失败保留已记录用量。失败且供应商未给用量时成本未知。T02a 将 LLM、Specialist、Collaboration 和 Graph 异常出口改为固定安全提示；JsonFormatter 的异常字段只记录类型、模块/函数/行号及原因链，省略异常正文、绝对路径与源码行，保留请求关联。会话 ID、请求路径、任意日志 message/structured_fields、其他日志处理器及本地评估报告仍需单独隐私审查；这不是全链路内容脱敏。长期指标聚合和告警系统仍未确认。
+评估分别汇总 Agent/Judge/total usage，失败且供应商未给用量时成本未知。HTTP 日志按服务端生成的 `X-Request-ID` 关联，使用固定路径模板、状态和耗时。[日志策略](../utils/log_privacy.py) 允许受控事件、诊断标签及用量，清除原始会话 ID 与任意消息。异常只保留类型、模块/函数/行号及原因链。应用关闭 Uvicorn 原始访问日志，Vite 代理错误输出固定文案。评估报告的异常字段只保留类型，显式评估材料仍需按本地敏感数据对待。托管网关和生产错误采集须单独核查。
 
 ## 7. 测试与交付边界
 

@@ -39,7 +39,7 @@ docker compose -f compose.vector.yaml exec db createdb -U pdf_agent pdf_agent_lo
 docker compose -f compose.vector.yaml --profile app up -d --build --wait
 ```
 
-`pdf_agent_local` 已存在时跳过 `createdb`。迁移服务会先于 API 执行。打开[工作台](http://127.0.0.1:8001)、[接口文档](http://127.0.0.1:8001/docs)或[健康检查](http://127.0.0.1:8001/health)。首次构建会下载固定版本的 BGE-M3，容器运行时从缓存加载。
+`pdf_agent_local` 已存在时跳过 `createdb`。迁移服务会先于 API 执行。容器的 HTTP 端口提供[接口文档](http://127.0.0.1:8001/docs)和[健康检查](http://127.0.0.1:8001/health)。浏览器工作台可按[本地 HTTPS 前端](docs/DEVELOPMENT.md#运行和调试)设置 `PDF_AGENT_DEV_BACKEND=http://127.0.0.1:8001`，或在容器前配置同源 HTTPS 反向代理。首次构建会下载固定版本的 BGE-M3，容器运行时从缓存加载。
 
 在主机上开发时使用 Python 3.11 和 Node.js 22。主机连接地址、Alembic、模型缓存和前端命令见[开发指南](docs/DEVELOPMENT.md)和[本地 PostgreSQL 配置](docs/LOCAL_STORAGE.md)。使用默认 `compose.yaml` 时，需要显式指定容器可访问且已完成迁移的 `DATABASE_URL`。
 
@@ -76,7 +76,8 @@ python -m evaluation.runner --mode real-pdf --pdf-dir /path/to/pdfs --retrieval-
 
 ## 数据与部署
 
-- 会话过期清理默认关闭；仅在确实需要自动删除时启用 `SESSION_RETENTION_ENABLED`。删除会话会一并清理其消息、文档和向量。
+- 匿名会话凭据绝对有效期为 24 小时。浏览器使用安全 Cookie，脚本可在创建时请求 Bearer 令牌。浏览器只保存活动会话定位值和语言偏好，刷新后清空页面聊天回合。
+- 数据库自动清理默认关闭。需要自动删除时可启用 `SESSION_RETENTION_ENABLED`。显式删除会话会一并清理其消息、文档和向量。凭据到期后，已有数据仍按数据库保留策略处理。
 - 迁移旧 SQLite/FAISS 数据前，先阅读[本地存储与恢复指南](docs/LOCAL_STORAGE.md)。离线迁移工具使用[独立依赖](requirements.migration.txt)。
 - PostgreSQL/pgvector 已完成本地验证。本轮未切换 Render 或生产数据库，现有 Blueprint 不可当作新存储方案的部署指引。
 

@@ -19,6 +19,18 @@ def response(text):
 
 
 class EvaluationUsageTests(unittest.TestCase):
+    def test_agent_report_preserves_error_type_without_exception_text(self):
+        secret = 'SYNTHETIC-PRIVATE-PDF-BODY'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'report.json'
+            args = build_parser().parse_args(['--mode', 'live', '--case', 'source-citations', '--output', str(path)])
+            with patch('evaluation.runner._run_live_case', side_effect=ValueError(secret)), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                run(args)
+            printed = path.read_text(encoding='utf-8')
+        self.assertNotIn(secret, printed)
+        self.assertEqual(json.loads(printed)['cases'][0]['agent_error'], 'ValueError')
+
     def run_case(self, directory, text, judge=True):
         path = Path(directory) / 'report.json'
         args = build_parser().parse_args(['--mode', 'live', '--case', 'source-citations', '--output', str(path)] + (['--llm-judge', '--allow-paid-api'] if judge else []))

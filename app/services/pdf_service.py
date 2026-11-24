@@ -90,7 +90,6 @@ async def _load_pdf_into_session(session: dict, uploaded_file: UploadFile) -> bo
             logger,
             logging.INFO,
             "pdf_upload_skipped",
-            session_id=session.get("session_id"),
             reason="duplicate_filename",
         )
         return False
@@ -170,7 +169,6 @@ async def _load_pdf_into_session(session: dict, uploaded_file: UploadFile) -> bo
             logger,
             logging.INFO,
             "pdf_indexed",
-            session_id=session.get("session_id"),
             file_size_bytes=size,
             page_count=len(docs),
             chunk_count=len(chunks),
@@ -190,7 +188,6 @@ async def _load_pdf_into_session(session: dict, uploaded_file: UploadFile) -> bo
             logging.ERROR,
             "pdf_index_failed",
             exc_info=True,
-            session_id=session.get("session_id"),
             duration_ms=round((perf_counter() - started_at) * 1000, 2),
             error_type=type(exc).__name__,
         )

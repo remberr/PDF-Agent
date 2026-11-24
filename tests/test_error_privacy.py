@@ -131,7 +131,7 @@ class ErrorPrivacyTests(unittest.TestCase):
         self.assertNotIn(__file__, str(payload))
         self.assertNotIn("raise RuntimeError", str(payload))
         self.assertEqual(payload["request_id"], "privacy-request")
-        self.assertEqual(payload["event"], "operation_failed")
+        self.assertEqual(payload["event"], "library_log")
         self.assertEqual(payload["exception"]["type"], "RuntimeError")
         trace = payload["exception"]["stacktrace"]
         self.assertIn("ValueError", trace)
@@ -170,7 +170,8 @@ class ErrorPrivacyTests(unittest.TestCase):
                     self.assert_private_values_absent(response.text)
                     self.assert_private_values_absent(session["messages"])
                     self.assert_private_values_absent(logs.getvalue())
-                    self.assertEqual(response.headers["X-Request-ID"], "privacy-request")
+                    request_id = response.headers["X-Request-ID"]
+                    self.assertRegex(request_id, r"^[a-f0-9]{32}$")
                     self.assertEqual(result["steps"], ["qa"])
                     self.assertIn("unavailable" if failure == "provider" else "failed",
                                   result["answer"].lower())
@@ -181,7 +182,7 @@ class ErrorPrivacyTests(unittest.TestCase):
                     event = "llm_call_failed" if failure == "provider" else "specialist_failed"
                     failed = [entry for entry in diagnostics if entry["event"] == event]
                     self.assertEqual(len(failed), 1)
-                    self.assertEqual(failed[0]["request_id"], "privacy-request")
+                    self.assertEqual(failed[0]["request_id"], request_id)
                     self.assertEqual(failed[0]["operation" if failure == "provider" else "step"], "qa")
 
     def test_collaboration_failure_does_not_copy_exception_into_recommendations(self):
@@ -221,19 +222,21 @@ class ErrorPrivacyTests(unittest.TestCase):
                 diagnostics = [json.loads(line) for line in logs.getvalue().splitlines()]
                 failed = next(entry for entry in diagnostics if entry["event"] == "agent_workflow_failed")
                 self.assertEqual(failed["error_type"], "ValueError")
-                self.assertEqual(failed["request_id"], "privacy-request")
+                self.assertEqual(failed["request_id"], response.headers["X-Request-ID"])
 
     def test_upload_parser_and_storage_failures_do_not_leak_exception_details(self):
+        from app.main import app
+
         for failure in ("parser", "storage"):
             with self.subTest(failure=failure):
                 session = make_session(None)
                 with patch("app.api.routes.get_session", return_value=session) as get_session, \
                         patch("app.services.pdf_service.parse_pdf_documents",
                               side_effect=ValueError(PRIVATE_ERROR)), \
-                        capture_json_logs() as logs, \
-                        accept_test_owner(), TestClient(make_app(), headers=AUTH_HEADERS, raise_server_exceptions=False) as http:
+                        capture_json_logs() as logs, accept_test_owner():
                     if failure == "storage":
                         get_session.side_effect = OSError(PRIVATE_ERROR)
+                    http = TestClient(app, headers=AUTH_HEADERS, raise_server_exceptions=False)
                     response = http.post(
                         f"/sessions/{HTTP_SESSION_ID}/pdfs",
                         files={"files": ("sample.pdf", b"test parser input", "application/pdf")},
@@ -244,7 +247,8 @@ class ErrorPrivacyTests(unittest.TestCase):
                 self.assert_private_values_absent(logs.getvalue())
                 diagnostics = [json.loads(line) for line in logs.getvalue().splitlines()]
                 failed = next(entry for entry in diagnostics if entry["event"] == "http_request_failed")
-                self.assertEqual(failed["request_id"], "privacy-request")
+                self.assertEqual(failed["request_id"], response.headers["X-Request-ID"])
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
                 self.assertEqual(failed["exception"]["type"], "ValueError" if failure == "parser" else "OSError")
 
 

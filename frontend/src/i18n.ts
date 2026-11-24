@@ -15,6 +15,7 @@ export interface Translation {
     new: string;
     confirmNew: string;
     retryRestore: string;
+    historyInMemory: string;
   };
   nav: {
     label: string;
@@ -121,6 +122,7 @@ export const translations: Record<Language, Translation> = {
       new: "New session",
       confirmNew: "Start a new PDF session?",
       retryRestore: "Retry session connection",
+      historyInMemory: "Earlier messages are no longer displayed after reopening the page. The session can still use its saved context.",
     },
     nav: {
       label: "Workspace views",
@@ -231,7 +233,7 @@ export const translations: Record<Language, Translation> = {
       cancelled: "Request cancelled. In-flight model calls may still incur usage.",
       invalidResponse: "The server response was invalid. The request was not repeated.",
       streamInterrupted: "The stream ended without a complete result. The request was not repeated.",
-      storageUnavailable: "Browser storage is unavailable; this conversation may not survive a reload.",
+      storageUnavailable: "Browser storage is unavailable. Session recovery or removal of older local chat data could not be confirmed.",
       sessionUnavailable: "This session is unavailable or expired. Start a new session to continue.",
       cookieUnavailable: "A session could not be opened. Use the HTTPS app and allow session cookies.",
       previousDeletionUnconfirmed: "The new session is open. Deletion of the previous session could not be confirmed.",
@@ -255,6 +257,7 @@ export const translations: Record<Language, Translation> = {
       new: "新建会话",
       confirmNew: "确定要新建 PDF 会话吗？",
       retryRestore: "重新连接会话",
+      historyInMemory: "重新打开页面后，先前的聊天记录不再显示。当前会话仍可使用已保存的上下文。",
     },
     nav: {
       label: "工作区视图",
@@ -365,7 +368,7 @@ export const translations: Record<Language, Translation> = {
       cancelled: "请求已取消；在途模型调用仍可能产生用量。",
       invalidResponse: "服务器响应格式无效，未自动重复请求。",
       streamInterrupted: "连接已结束，但未收到完整结果；未自动重复请求。",
-      storageUnavailable: "浏览器存储不可用，刷新后可能无法恢复本地对话。",
+      storageUnavailable: "浏览器存储不可用，无法确认会话能否恢复或旧聊天缓存是否已清理。",
       sessionUnavailable: "此会话不可用或已过期。请新建会话以继续。",
       cookieUnavailable: "无法打开会话。请使用 HTTPS 访问应用并允许会话 Cookie。",
       previousDeletionUnconfirmed: "已打开新会话。上一个会话是否已删除无法确认。",

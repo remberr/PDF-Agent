@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readWorkflowStream } from '../src/sse.ts';
 import { parseAskResponse, parseProgress } from '../src/protocol.ts';
-import { RequestScope, readConversation, safeStorage } from '../src/requestScope.ts';
+import { RequestScope, purgeLegacySessionStorage, safeStorage } from '../src/requestScope.ts';
 
 export const result = {
   answer: 'Evidence 中文', steps: ['source'], sources: [], collaboration_notes: {}, revision_count: 0,
@@ -87,12 +87,29 @@ test('complete result finishes and cancels transport even if server never closes
   assert.equal(stream.locked,false);
 });
 
-test('storage denial is recoverable and malformed stored turns cannot reach UI', () => {
+test('storage denial is recoverable', () => {
   const denied = {getItem() {throw Error('denied');}, setItem() {throw Error('quota');}, removeItem() {throw Error('denied');}};
   assert.equal(safeStorage('get', 'key', undefined, denied), null);
   assert.equal(safeStorage('set', 'key', 'value', denied), false);
-  const store = {getItem() {return JSON.stringify([null, {id:'x',question:'q',pending:true,result}, {id:9}]);}, setItem() {}, removeItem() {}};
-  const turns = readConversation('a', store);
-  assert.equal(turns.length, 1);
-  assert.equal(turns[0].pending, false);
+});
+
+test('old transcript keys are removed without resetting unrelated storage', () => {
+  const data = new Map([
+    ['pdf-agent-session', 'legacy'],
+    ['pdf-agent-conversation-a', 'private transcript A'],
+    ['pdf-agent-conversation-b', 'private transcript B'],
+    ['pdf-agent-session-v2', 'current'],
+    ['pdf-agent-language', 'zh'],
+    ['unrelated', 'keep'],
+  ]);
+  const store = {
+    get length() { return data.size; },
+    key(index: number) { return Array.from(data.keys())[index] ?? null; },
+    removeItem(key: string) { data.delete(key); },
+  };
+  assert.equal(purgeLegacySessionStorage(store), true);
+  assert.deepEqual(Array.from(data.keys()), ['pdf-agent-session-v2', 'pdf-agent-language', 'unrelated']);
+  data.set('pdf-agent-session', 'legacy');
+  const denied = {...store, removeItem() { throw Error('denied'); }};
+  assert.equal(purgeLegacySessionStorage(denied), false);
 });

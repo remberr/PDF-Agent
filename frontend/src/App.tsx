@@ -17,7 +17,7 @@ import {
   getSession,
   uploadPdfs,
 } from "./api";
-import { RequestScope, readConversation, safeStorage } from './requestScope';
+import { RequestScope, purgeLegacySessionStorage, safeStorage } from './requestScope';
 import { executionNotice } from './utils/execution';
 import { ChatPanel } from "./components/ChatPanel";
 import { DocumentsPanel } from "./components/DocumentsPanel";
@@ -35,9 +35,6 @@ import type {
 
 const SESSION_STORAGE_KEY = "pdf-agent-session-v2";
 const LANGUAGE_STORAGE_KEY = "pdf-agent-language";
-const conversationKey = (sessionId: string) =>
-  `pdf-agent-conversation-${sessionId}`;
-
 async function openSession(signal: AbortSignal): Promise<SessionDetail> {
   const created = await createSession(signal);
   // Confirm the browser retained the server-issued cookie before storing the locator.
@@ -86,7 +83,6 @@ function App() {
     useState<BackendStatus>("checking");
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
-  const [conversationReady, setConversationReady] = useState(false);
   const [question, setQuestion] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -105,6 +101,7 @@ function App() {
     const lease = scope.start('bootstrap');
     const current = () => scope.isCurrent(lease);
     const bootstrap = async () => {
+      if (!purgeLegacySessionStorage()) setStorageWarning(true);
       try { await checkHealth(lease.signal); if (current()) setBackendStatus('online'); }
       catch { if (current()) setBackendStatus('offline'); }
       if (!current()) return;
@@ -113,13 +110,13 @@ function App() {
         try {
           const restored = await getSession(stored, lease.signal);
           if (!current()) return;
-          setSession(restored); setTurns(readConversation(stored));
+          setSession(restored);
           return;
         } catch (error) {
           if (!current()) return;
           if (!(error instanceof ApiError) || error.status !== 404) {
-            // Preserve the session and cached turns on transport/temporary errors.
-            setSession(emptySession(stored)); setTurns(readConversation(stored));
+            // Preserve the locator so a temporary failure can be retried.
+            setSession(emptySession(stored));
             setBackendStatus('offline'); setUploadError(translations[language].errors.apiUnavailable);
             return;
           }
@@ -140,15 +137,9 @@ function App() {
           ? translations[language].errors.cookieUnavailable : translations[language].errors.createSession);
       }
     };
-    void bootstrap().finally(() => { if (current()) setConversationReady(true); scope.finish(lease); });
+    void bootstrap().finally(() => scope.finish(lease));
     return () => scope.invalidate();
   }, []);
-
-  useEffect(() => {
-    if (session && conversationReady && safeStorage('set', conversationKey(session.session_id), JSON.stringify(turns)) === false) {
-      setStorageWarning(true);
-    }
-  }, [conversationReady, session, turns]);
 
   useEffect(() => {
     if (safeStorage('set', LANGUAGE_STORAGE_KEY, language) === false) setStorageWarning(true);
@@ -210,12 +201,11 @@ function App() {
         try { await deleteSession(previousSessionId, lease.signal); }
         catch { previousDeletionFailed = true; }
         if (!scope.isCurrent(lease)) return;
-        if (safeStorage('remove', conversationKey(previousSessionId)) === false) setStorageWarning(true);
       }
       if (safeStorage('set', SESSION_STORAGE_KEY, created.session_id) === false) setStorageWarning(true);
       setSession(created); setTurns([]);
       if (previousDeletionFailed) setUploadError(t.errors.previousDeletionUnconfirmed);
-      setBackendStatus('online'); setMobileView('documents'); setConversationReady(true);
+      setBackendStatus('online'); setMobileView('documents');
     } catch (error) {
       if (scope.isCurrent(lease)) {
         setBackendStatus('offline');
@@ -379,6 +369,7 @@ function App() {
 
       {storageWarning && <p role="alert">{t.errors.storageUnavailable}</p>}
       {!session && uploadError && <p role="alert">{uploadError}</p>}
+      {session && session.message_count > 0 && turns.length === 0 && <p role="status">{t.session.historyInMemory}</p>}
       {backendStatus === 'offline' && session && <button type="button" onClick={retrySession}>{t.session.retryRestore}</button>}
       <nav className="mobile-tabs" aria-label={t.nav.label}>
         <button

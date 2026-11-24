@@ -18,6 +18,7 @@ from utils.observability import (
     RequestContextMiddleware,
     empty_usage_summary,
     get_model_pricing,
+    log_event,
     new_usage_tracker,
     observability_context,
     record_llm_usage,
@@ -86,6 +87,31 @@ class PricingTests(unittest.TestCase):
 
 
 class StructuredLoggingTests(unittest.TestCase):
+    def test_http_and_library_logs_omit_private_inputs_but_keep_request_correlation(self):
+        from tests.test_error_privacy import capture_json_logs, make_app
+
+        secret = 'SYNTHETIC-COOKIE-FILENAME-BODY-MARKER'
+        with capture_json_logs() as logs, TestClient(make_app()) as http:
+            response = http.get(f'/sessions/{HTTP_SESSION_ID}?private={secret}',
+                                headers={'X-Request-ID': HTTP_SESSION_ID, 'Cookie': f'private={secret}'})
+            logging.getLogger('httpx').warning('Provider URL and headers: %s', secret)
+            with observability_context(session_id=HTTP_SESSION_ID):
+                log_event(logging.getLogger(__name__), logging.INFO, 'agent_workflow_finished',
+                          reason=secret, session_id=HTTP_SESSION_ID, filename=secret,
+                          usage={'llm_calls': 1, 'pricing_warnings': [secret],
+                                 'by_model': {secret: {'llm_calls': 1}}})
+        raw = logs.getvalue()
+        self.assertNotIn(secret, raw)
+        self.assertNotIn(HTTP_SESSION_ID, raw)
+        self.assertNotEqual(response.headers['X-Request-ID'], HTTP_SESSION_ID)
+        payloads = [json.loads(line) for line in raw.splitlines()]
+        completed = next(event for event in payloads if event['event'] == 'http_request_completed')
+        self.assertEqual(completed['path'], '/sessions/{session_id}')
+        self.assertEqual(completed['status_code'], 404)
+        self.assertEqual(completed['request_id'], response.headers['X-Request-ID'])
+        workflow = next(event for event in payloads if event['event'] == 'agent_workflow_finished')
+        self.assertEqual(workflow['usage']['llm_calls'], 1)
+
     def test_json_formatter_includes_request_context_and_fields(self):
         formatter = JsonFormatter()
         record = logging.LogRecord(
@@ -93,19 +119,19 @@ class StructuredLoggingTests(unittest.TestCase):
             logging.INFO,
             __file__,
             1,
-            "workflow_completed",
+            "agent_workflow_finished",
             (),
             None,
         )
-        record.event = "workflow_completed"
+        record.event = "agent_workflow_finished"
         record.structured_fields = {"duration_ms": 12.5}
 
         with observability_context("request-1", "session-1"):
             payload = json.loads(formatter.format(record))
 
-        self.assertEqual(payload["event"], "workflow_completed")
+        self.assertEqual(payload["event"], "agent_workflow_finished")
         self.assertEqual(payload["request_id"], "request-1")
-        self.assertEqual(payload["session_id"], "session-1")
+        self.assertNotIn("session_id", payload)
         self.assertEqual(payload["duration_ms"], 12.5)
 
     @patch("app.api.routes.ask_pdf_agent")
@@ -141,11 +167,12 @@ class StructuredLoggingTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers["X-Request-ID"], "client-request-1")
+        request_id = response.headers["X-Request-ID"]
+        self.assertRegex(request_id, r"^[a-f0-9]{32}$")
         mock_ask_pdf_agent.assert_called_once_with(
             session,
             "What is the result?",
-            "client-request-1",
+            request_id,
             unittest.mock.ANY,
         )
         from utils.llm_budget import RequestBudget, LLMBudgetExceeded

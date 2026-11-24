@@ -1,6 +1,6 @@
 # 改造任务清单
 
-更新时间：2026-11-24（Asia/Shanghai，工程成熟化阶段最终收尾）。项目任务状态的唯一事实来源；长期方向与里程碑见 [ROADMAP.md](ROADMAP.md)，当前实现见 [ARCHITECTURE.md](../docs/ARCHITECTURE.md)。需求分级、自动维护门禁及确认边界统一见 [AGENTS.md](../AGENTS.md#连续任务执行模式)。
+更新时间：2026-11-25（Asia/Shanghai，工程成熟化阶段发布门禁复核）。项目任务状态的唯一事实来源；长期方向与里程碑见 [ROADMAP.md](ROADMAP.md)，当前实现见 [ARCHITECTURE.md](../docs/ARCHITECTURE.md)。需求分级、自动维护门禁及确认边界统一见 [AGENTS.md](../AGENTS.md#连续任务执行模式)。
 
 ## 当前入口（2026-11-24）
 
@@ -12,7 +12,21 @@
 - 审计轮只交付规划；随后各项验收见末尾独立实施记录。T09a与T09b均已独立验收，本次据其证据同步T09父项；先前风险及未执行验证保留，不将工程边界验收当作语义质量或生产验证。
 
 <a id="current-execution"></a>
-## 当前执行队列与阶段验收（2026-11-24）
+## 当前执行队列与阶段验收（2026-11-25）
+
+- 发布复核启动：本地 `main` 为 `cb90f51242dc35ff1788b0b09c33269a90cdb843`，工作区和暂存区干净，基于此前已验收的运行代码。用户接受本地验收，允许仅停用已识别的 Streamlit push Webhook，以及在存在关联且开启自动同步时仅关闭 Render Blueprint Auto Sync。授权包含必要的 TASKS 独立提交和所有门禁通过后的正常推送。其他仓库集成保持原设置，部署、资源创建或删除、生产数据库与后续开发均在范围外。
+- 执行顺序：先处理唯一匹配的旧 Webhook，复核 Streamlit 更新渠道、GitHub Actions 与 Render 发布设置，再执行远端和提交复核。GitHub 要求手动重新认证，期间完成不依赖该认证的 Render 门禁。前轮本地验收继续有效，仅进行发布与文档核对。
+
+| 门禁 | 当前状态 | 证据及恢复条件 |
+| --- | --- | --- |
+| Render | 已完成（DONE） | 已确认服务 Auto Deploy 为 Off，关联 Blueprint 的 Auto Sync 已关闭并读回确认。 |
+| Streamlit 更新渠道与 GitHub 发布 | 阻塞（BLOCKED） | 目标 Webhook 仍开启，编辑前须由用户完成 GitHub Confirm access。Streamlit 管理页要求登录，GitHub CLI 也无法枚举 GitHub App 安装。推送暂停，等待停用后读回并确认其他更新入口。 |
+
+- Webhook 证据：GitHub REST 确认唯一启用的仓库 Webhook 为指向旧 Streamlit 的 `push` 订阅，签名密钥已配置并遮蔽。REST 更新契约对签名保留有警告。Chrome 已打开 GitHub 官方编辑路径，但停在 Confirm access，未提交任何 Webhook 更新。需在仓库 Settings → Webhooks 编辑该 Hook，仅取消 Active 并保存，保留签名、订阅和其他集成。登录 Streamlit Community Cloud 的对应工作区，核对旧应用来源及其他自动更新入口，必要时从仓库 Settings → GitHub Apps 核对绑定。禁用仓库 Hook 前后都须确认未有其他未经授权的自动更新渠道。
+- Render 变更与验收：确认 `pdf-agent` 服务 Auto Deploy Off，无 pre-deploy 命令。关联 Blueprint 指向本仓库 `main` 的 `render.yaml`，Auto Sync 原为开启。仅修改 `autoSync: false`，响应无同步计划或同步，独立读回为 Off、`paused`，仓库、分支和路径一致。服务 Auto Deploy 仍为 Off。最新部署记录为此前 2026-10-19 的 `live`，未触发部署。
+- Git 与 CI 核查：远端 `main` 仍为 `370bb47856f7e4518f789e4cc95274133db9bd53`，是本地的祖先。活动 Actions 只有 CI，最近已完成的远端 CI 为该旧提交的 `success`。未推送，故未触发当前提交的 CI。确认收尾基线后的差异仅为 TASKS，保留既有业务验收，无需重跑全量测试或镜像构建。门禁恢复后再确认目标 Hook、剩余自动更新渠道、远端及待推送范围，随后正常推送并读回两边 HEAD 与 CI。
+
+### 前轮最终收尾与验收（2026-11-24，历史记录）
 
 - 收尾基线：`cad5d6c`，启动时 main 和暂存区干净。GitHub `origin/main` 只读查询为 `370bb47856f7e4518f789e4cc95274133db9bd53`，本地领先 8 项提交。
 - 已授权范围：核对并同步文档、清理已确认无用的本轮临时文件、本地回归和 Docker 镜像验收、隔离 PG 迁移及独立收尾提交。通过全部验收、待推送历史检查及远程触发核查后才可正常推送。未授权生产部署、历史库升级、生产迁移或付费模型。T08、T10 和其他待办不启动。

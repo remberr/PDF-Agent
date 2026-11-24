@@ -1,12 +1,14 @@
 # 工程成熟化路线图
 
-更新时间：2026-11-24（Asia/Shanghai）。依据基线 `370bb47` 和[本次工程审计](AUDIT_2026-11-24.md)：PostgreSQL + pgvector、BGE-M3、本地迁移与验收已经实现，运行时 FAISS 已移除；Render/生产切换仍未完成。保留模块化单体和现有公开 API/Agent 功能。规划不构成实施或发布授权。
+更新时间：2026-11-25（Asia/Shanghai）。依据基线 `370bb47` 和[本次工程审计](AUDIT_2026-11-24.md)：PostgreSQL + pgvector、BGE-M3、本地迁移与验收已经实现，运行时 FAISS 已移除；Render 生产切换仍未完成。保留模块化单体和现有公开 API/Agent 功能。规划不构成实施或发布授权。
 
 ## 状态与取舍
 
 任务状态只在 [TASKS.md](TASKS.md) 更新；较大的任务可拆成独立验收子项，不因一个子项交付就宣称总项完成。P0 表示已确认、需立即止损的严重事件；当前审计未确认此类事件。P1 为优先处理的可靠性/安全/质量风险；P2 为维护与交付改进。优先级不等于已证实可利用漏洞。
 
-最新里程碑：现阶段工程成熟化完成本地收尾，原 Dockerfile 重建镜像通过隔离数据库迁移、认证、上传、Source/SSE 和重启验收。匿名会话访问和隐私治理接续此前的终态契约、前端恢复、在途/SQL 边界及 Memory 容量改造。发布状态与触发门禁见 [TASKS 当前队列](TASKS.md#current-execution)。生产迁移和后续开发另行授权。
+现阶段工程成熟化已完成本地收尾，原 Dockerfile 重建镜像通过隔离数据库迁移、认证、上传、Source/SSE 和重启验收。匿名会话访问和隐私治理接续此前的终态契约、前端恢复、在途/SQL 边界及 Memory 容量改造。
+
+发布依次完成 GitHub `main` 推送及 CI 验证、T15e2 Render 部署准备、经方案确认的 T15g 手动生产切换与运行验收。保持 Render 自动部署及 Blueprint 自动同步关闭。目标环境实测、备份恢复演练及必要发布前置验收是生产切换的依据。实际授权、状态和门禁见 [TASKS 当前队列](TASKS.md#current-execution)。
 
 先在现有架构上补边界和回归，再根据实际压力决定是否拆服务。认证方案、阈值、超时、数据保留和允许的并发度需在对应任务启动时明确；不在文档阶段假定容量或业务需求。P3 为低风险原型整理和清晰度事项。
 
@@ -21,7 +23,7 @@
 
 任务级验收细节见 [TASKS.md](TASKS.md)；命令只维护在 [TESTING.md](../docs/TESTING.md)，避免路线图复制失效。
 
-原PostgreSQL专项设计见[迁移方案](../docs/POSTGRESQL_MIGRATION.md)：保留关系库审计与T15连接/Schema、兼容持久化、导入回滚、配置/CI、演练及生产切换职责。向量与一致性目标按下段新方案衔接；专项依赖与每轮范围以TASKS和用户请求为准，生产操作及部署仍未授权。
+原PostgreSQL专项设计见[迁移方案](../docs/POSTGRESQL_MIGRATION.md)：保留关系库审计与T15连接/Schema、兼容持久化、导入回滚、配置/CI、演练及生产切换职责。向量与一致性目标按下段新方案衔接，专项依赖与每轮实际授权见 [TASKS 当前队列](TASKS.md#current-execution)。
 
 最新[pgvector专项方案](../docs/PGVECTOR_MIGRATION.md)取代原计划的 FAISS 长期持久化目标。T05、T15a–f 本地范围、T16a–f 已实现，不重复迁移或文件代次开发；后续按本次审计补强 T05a/T15d1。T12负责持续原生 PG 备份，Render 配置残项由 T15e2 承接，上线仍须 T15g 批准。旧索引保留供回滚。
 

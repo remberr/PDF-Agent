@@ -8,7 +8,7 @@
 
 - T05、T15a–f 本地范围、T16a–f 已实现；本轮独立新PG库123项120通过/3跳过，不重复迁移。
 - T15e本地完成与Render残项分开，残项为T15e2；T15g生产切换未实施。
-- T01、T03与T09a已完成本地验收；T04（凭据/兼容方案待确认）/T02b仍未实施。用户随后以 `f348fa4` 授权本轮 T06 → T07 → T05a → T09b；方案A已获批准，T06已完成本地验收，后续三项按顺序推进。其他任务不属于本轮授权。
+- T01、T03与T09a已完成本地验收；T04（凭据/兼容方案待确认）/T02b仍未实施。用户随后以 `f348fa4` 授权本轮 T06 → T07 → T05a → T09b；方案A已获批准，本轮T06、T07、T05a、T09b均完成本地验收及逐项本地提交；未扩展到其他任务、push或部署。其他任务不属于本轮授权。
 - 审计轮只交付规划；随后分别验收T01、T03、T09a，详见末尾独立实施记录。先前剩余风险及未执行验证保留；T09b与T06不随T09a通过自动完成。
 
 ## 任务记录约定
@@ -107,10 +107,10 @@
 - 验收：失败/降级不伪装成功，流有明确终态或可识别中断；记录已发生用量；不因自动重试重复生成。兼容既有事件或提供增量扩展说明；不承诺无法证实的上游即时取消。
 - 回归：成功、单 Specialist 失败、Reviewer 降级、Graph 异常、保存失败、断线、空/截断流；依赖 T05 的持久化契约。
 - 2026-11-24 启动复核：用户确认 `f348fa4da4469a560326364b57915624827fbfa0` 为基线，授权依次执行 T06 → T07 → T05a → T09b，各项验收后独立本地提交；初始工作区和暂存区干净。T01/T03/T09a 及历史风险保留。
-- 当前阻塞：`AskResponse` 和 `_build_result` 无整体执行/持久化状态；Specialist 状态在 Graph 汇总时丢失，Reviewer 的模型失败可降级为文本后仍返回 success；服务层把节点更新统一计为 completed，Graph 异常后仍保存并记录 completed，保存异常则没有最终 result。仅修复内部日志不能让 JSON 客户端可靠区分这些情况。新增终态元数据会触及本轮明确要求先确认的公开 API/SSE 契约边界，尚未修改业务代码或提交。
-- 待批准推荐方案：保留现有响应字段、HTTP 成功传输方式及 `progress`/`result` 事件名和原 status 枚举，增量增加执行元数据；最终结果明确 succeeded/degraded/failed/cancelled、受控原因、节点结果及 saved/failed/not_attempted 保存状态，progress 可携带节点结果快照。断线无法投递时仅记录取消/中断及实际用量，不承诺上游即时取消，不自动重发。旧客户端可忽略新增字段，但须完成 T07 才能正确展示新增失败语义。
+- 启动时阻塞（已解除）：`AskResponse` 和 `_build_result` 无整体执行/持久化状态；Specialist 状态在 Graph 汇总时丢失，Reviewer 的模型失败可降级为文本后仍返回 success；服务层把节点更新统一计为 completed，Graph 异常后仍保存并记录 completed，保存异常则没有最终 result。仅修复内部日志不能让 JSON 客户端可靠区分这些情况。新增终态元数据会触及本轮明确要求先确认的公开 API/SSE 契约边界，尚未修改业务代码或提交。
+- 当时待批准方案（后获批准）：保留现有响应字段、HTTP 成功传输方式及 `progress`/`result` 事件名和原 status 枚举，增量增加执行元数据；最终结果明确 succeeded/degraded/failed/cancelled、受控原因、节点结果及 saved/failed/not_attempted 保存状态，progress 可携带节点结果快照。断线无法投递时仅记录取消/中断及实际用量，不承诺上游即时取消，不自动重发。旧客户端可忽略新增字段，但须完成 T07 才能正确展示新增失败语义。
 - 备选：完全不扩展外部字段，只修正内部状态/日志并沿用 failed progress；这无法满足 JSON 的降级/保存失败可识别验收，不建议以此标记完成。解除条件：用户批准具体增量契约后，先补契约/失败回归测试，再实施 T06；后续三项按指定顺序等待，不绕过当前确认边界。无需破坏性数据库迁移、改变 TTL 保留策略、新框架或付费 API。
-- 推荐字段草案（未实施）：最终 result/AskResponse 增加 `execution` 对象，包含 `status`（succeeded/degraded/failed/cancelled）、受控 `reason`（可为空）、`node_statuses` 映射和 `persistence`（saved/failed/not_attempted）；progress 仅增量携带 `node_statuses`，不扩大其原 status 枚举。旧字段保留，旧服务器缺失新字段时由 T07 明确显示状态未确认，不推定成功；T07 同步适配，旧客户端忽略新字段仍不能获得新增终态保障。
+- 批准前字段草案（最终实现见EXECUTION.md）：最终 result/AskResponse 增加 `execution` 对象，包含 `status`（succeeded/degraded/failed/cancelled）、受控 `reason`（可为空）、`node_statuses` 映射和 `persistence`（saved/failed/not_attempted）；progress 仅增量携带 `node_statuses`，不扩大其原 status 枚举。旧字段保留，旧服务器缺失新字段时由 T07 明确显示状态未确认，不推定成功；T07 同步适配，旧客户端忽略新字段仍不能获得新增终态保障。
 - 本轮前置验证：默认离线 `.venv/Scripts/python.exe -B -m unittest discover -s tests -t . -v`，196 项，165 通过/31 个 opt-in 跳过（13.748 秒）；所有真实模型、真实 PDF、PG 和恢复开关关闭。首次沙箱运行在 HTTP 测试附近无后续输出，已中止；同命令在允许本地进程通信的执行环境重跑通过，未改测试，首次挂起根因未单独确证。前端 `npm test` 6/6、`npm run build`（tsc/Vite）通过。日志在已忽略的 `.evaluation-local/t06-preflight-*`。这是基线复核，不是 T06 验收；PG 集成未运行，尚无任务完成提交。
 - 恢复实施：用户明确批准方案 A 的增量终态字段及 T07 适配，原确认阻塞已解除；保留上文历史复核记录。最终字段增加 `generation_status` 单独记录生成结果，整体 `status` 还受保存失败影响；无破坏性 Schema 迁移。
 
@@ -402,7 +402,7 @@
 - 验收：null/对象/数字/重复/未知值/空回答均不逃逸异常；保留快路径、最多一次补充、usage和T06失败语义。
 - 本地验收：2026-11-24新增18项回归、完整196项中193通过/3跳过；详见末尾记录与[结构边界说明](../docs/DEVELOPMENT.md#model-output-validation)。T06负责后续整体终态传播，本轮不实施。
 
-### T09b · P2 · 待实施：Memory 容量与锁边界
+### T09b · P2 · 已完成（DONE）：Memory 容量与锁边界
 
 - 对应F09，复用原T09剩余范围；文件：utils/memory.py、历史读取和调用方。
 - 依赖T03/T06。全局锁内I/O、全历史输入和无界缓存改为会话/版本范围、容量/有效期约束和锁外计算。
@@ -539,3 +539,15 @@
 - 完整回归`.venv/Scripts/python.exe -B -m unittest discover -s tests -t . -v`：218项215通过/3跳过（19.075秒），PG及legacy恢复开启、真实PDF与付费关闭，.evaluation-local/t05a-full-pg.log。默认离线同命令218项179通过/39跳过，.evaluation-local/t05a-default.log；定向46项45通过/1 opt-in跳过。未降低断言或跳过新增必需PG测试。
 - 前端未改，复用T07的19/19及完整构建。静态检查为git diff --check，无已配置Python lint/type-check。未调用真实付费API、重建镜像、远程CI、生产/Render或push。
 - 剩余边界：池/建连等待仍单独最多默认5秒，不是硬实时总HTTP截止；墙钟偏移会影响UTC租约/TTL实际时刻，需主机同步；上传解析/Embedding仍无心跳租约，TTL开启且超期时安全失败而非复活会话。旧二进制回退需审核Schema版本并排空请求，未执行破坏性downgrade。详见LOCAL_STORAGE。
+
+
+## T09b 实施与验收（2026-11-24）
+
+- 前置T03/T06及用户指定顺序均满足；上一提交c70912a。Memory按会话/内容版本/文件上下文隔离，未知会话仅同一请求Tracker范围复用，完全无范围不全局缓存；LRU+单调TTL与在途索引均有容量上限。摘要与命中日志均在索引锁外；相同key并发合并，等待遵循自身截止/取消，失败/取消唤醒等待者。
+- 只通过原网关调用一次摘要，缓存读者不复制usage；模型失败保留已发生/未知用量，正文成功时T06标degraded；空/非法摘要及容量耗尽不伪造成功、不增加修复调用。默认历史100条、总输入24000 UTF8字节（近期8000/较早摘要输入16000）、摘要/文件名各4000字节；默认128缓存项、900秒TTL，范围与局限见MEMORY/DEVELOPMENT。
+- PostgreSQL只读取受限历史窗口并独立保留总message_count；原数据库全部历史/未知字段保留。批次追加只保存窗口后的新消息，真实PG验证并发/幂等和公开计数；显式删除、过期读取删除及TTL清理在提交后失效缓存，在途摘要不发布已失效结果。不改变Schema/数据保留策略。
+- RED：初始Memory9项6失败/2缺实现错误；PG3项2失败/1缺总计数字段错误；另复现命中日志仍占索引锁的失败后移到锁外。最终新增15项离线+3项PG，保留T01/T03/T09a原断言。
+- 最终全量`.venv/Scripts/python.exe -B -m unittest discover -s tests -t . -v`：隔离PG+legacy开启236项233通过/3跳过（21.535秒），日志.evaluation-local/t09b-acceptance-pg.log；所有opt-in关闭默认236项194通过/42跳过（14.938秒），日志t09b-acceptance-default.log。相对f348fa4基线新增40后端测试，未增加失败。
+- 最终前端npm test19/19，npm run build完整tsc/Vite通过，日志.evaluation-local/maturity-final-frontend.log及maturity-final-build.log。routing9/9、controlled source-citations1/1，均零LLM；报告maturity-final-routing.json/maturity-final-source.json。Memory最后仅索引锁外日志调整后已重跑全部后端；前端/Source均未受该调整影响，复用本轮成功结果。
+- 风险/未执行：有限窗口可能遗漏旧对话，真实模型长对话语义质量、付费RAG/Judge、浏览器挂载E2E、生产负载、远程CI及Docker镜像/部署均未验证；未运行不算通过。历史单条完整JSONB元数据仍读取，总count仍可能随规模变慢；缓存不替代授权，原T04/T02b风险保留。旧记录、SQLite/FAISS及历史本地/生产PG库未删除或迁移，新代码运行到旧PG库前仍须显式升级0003（本轮只升级隔离测试库）。
+- 本轮停止：T06→T07→T05a→T09b四项验收完成并按项本地提交；不继续未授权任务，不push/部署/生产访问/真实付费API。

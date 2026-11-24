@@ -150,3 +150,21 @@ $env:TEST_DATABASE_URL = 'postgresql+psycopg://pdf_agent:' + [Uri]::EscapeDataSt
 ## 日常开发流程
 
 确认任务范围与现有 diff → 阅读相关实现/测试 → 最小修改 → 按 [TESTING.md](TESTING.md) 验证 → 检查敏感文件与兼容性 → 报告结果。无需为每个小修建立新流程或强制新工作树。工程改造任务仅在获授权后进入实施，状态更新 [TASKS.md](../plans/TASKS.md)；涉及事实变化时同步对应专题，README 能力描述按任务授权处理。
+
+
+<a id="memory-limits"></a>
+## Memory 容量（T09b）
+
+Memory使用原LLM网关/UsageTracker；不新建客户端或模型修复路径。实现与会话/版本缓存、锁外摘要、历史窗口及保留边界见[MEMORY.md](MEMORY.md)。.env.example包含以下可选配置；值无效时明确失败且不回显原始配置内容。
+
+| 环境变量 | 默认值 | 合法范围 |
+| --- | --- | --- |
+| MEMORY_HISTORY_MAX_MESSAGES | 100 | 整数1–1000 |
+| MEMORY_HISTORY_MAX_BYTES | 24000 | 整数1–1000000，UTF-8字节 |
+| MEMORY_RECENT_MAX_BYTES | 8000 | 整数1–100000，不大于history字节限额 |
+| MEMORY_SUMMARY_MAX_BYTES | 4000 | 整数1–16000 |
+| MEMORY_SESSION_MAX_BYTES | 4000 | 整数1–16000 |
+| MEMORY_CACHE_MAX_ENTRIES | 128 | 整数1–1024；同时约束在途摘要数 |
+| MEMORY_CACHE_TTL_SECONDS | 900 | 有限正数，不大于86400 |
+
+默认history字节额度划出recent部分后，余下16000字节用于较早历史摘要输入。上述限额不改变数据库历史保留或会话TTL，不代表语义质量保证；T03独立控制调用/Token/费用和截止。缓存按进程持有，不需要新基础设施。

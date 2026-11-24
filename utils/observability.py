@@ -201,6 +201,7 @@ class UsageTracker:
     """Thread-safe request-level LLM usage accumulator."""
 
     def __init__(self, budget=None):
+        self.memory_scope = uuid4().hex
         self.budget = budget if budget is not None else RequestBudget()
         self._lock = Lock()
         self._total = UsageBucket()
@@ -244,6 +245,10 @@ class UsageTracker:
 
 def new_usage_tracker(budget=None):
     return UsageTracker(budget)
+
+
+def get_active_session_id():
+    return _session_id_var.get()
 
 
 def get_active_usage_tracker():

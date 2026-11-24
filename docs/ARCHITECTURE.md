@@ -75,7 +75,7 @@ T03给每个UsageTracker绑定[RequestBudget](../utils/llm_budget.py)，复用�
 
 [citations.py](../utils/citations.py) 从 source 和零基 page 产生文件名及一基物理 PDF 页码；[agent_service.py](../app/services/agent_service.py) 去重并返回最多 800 字符的来源摘要。返回来源是检索结果集合，不证明最终每句话都被证据支持。
 
-[deepseek_client.py](../utils/deepseek_client.py) 先放稳定系统指令、可复用文档上下文，再放动态 Memory 和问题。[memory.py](../utils/memory.py) 组合最近十条历史、较早历史的模型摘要、已上传文件名；摘要缓存当前无淘汰策略，锁内模型请求可能阻塞其他摘要。未做完整提示注入鲁棒性验证。
+[deepseek_client.py](../utils/deepseek_client.py) 先放稳定系统指令、可复用文档上下文，再放动态 Memory 和问题。[memory.py](../utils/memory.py)组合受限近期历史、较早历史模型摘要和文件名；T09b的会话/版本LRU+TTL缓存与在途合并都有容量上限，摘要在索引锁外计算，等待遵循自身预算。历史SQL读取受条数限制且独立保留总计数，数据库历史不删除，消息仍只追加；失败assistant不进入新Memory。详细容量、并发、缓存失效和旧上下文遗漏边界见[MEMORY.md](MEMORY.md)。未做完整提示注入鲁棒性验证。
 
 ## 5. PostgreSQL 持久化与生命周期
 

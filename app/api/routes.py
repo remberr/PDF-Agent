@@ -56,7 +56,7 @@ def get_pdf_session(session_id: str):
     return {
         "session_id": session_id,
         "loaded_pdfs": session["loaded_pdfs"],
-        "message_count": len(session["messages"]),
+        "message_count": session.get("message_count", len(session["messages"])),
         "has_vectorstore": session["vectorstore"] is not None,
         "total_documents": session.get("document_count", 0)
     }

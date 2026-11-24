@@ -9,6 +9,7 @@ from agent.graph_agent import build_pdf_agent_graph
 from agent.state import create_initial_agent_state, empty_collaboration_notes
 from utils.execution import error_reason, outcome
 from utils.llm_budget import LLMClientError
+from utils.memory_limits import HistoryWindow
 from app.services.session_store import save_session
 from app.services.postgres_store import acquire_session_lease, release_session_lease
 from utils.observability import (
@@ -223,7 +224,8 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker, lease):
     Run the LangGraph workflow and yield progress plus the final result.
     """
 
-    working_session = dict(session, messages=list(session["messages"]))
+    working_session = dict(session, messages=HistoryWindow(session["messages"],
+        session.get("message_count", len(session["messages"]))))
     failure_reason = None
     pdf_agent_graph = None
     workflow_started_at = perf_counter()
@@ -246,6 +248,7 @@ def _iter_pdf_agent_events(session, question, request_id, usage_tracker, lease):
         }
     )
 
+    working_session["messages"].total_count += 1
     state = create_initial_agent_state(
         question,
         session["vectorstore"],

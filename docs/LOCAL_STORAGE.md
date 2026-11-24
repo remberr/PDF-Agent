@@ -84,3 +84,6 @@ $env:PDF_AGENT_RUN_LOCAL_PDF_TESTS='0'
 DB_LOCK_TIMEOUT_MS默认3000，DB_STATEMENT_TIMEOUT_MS默认10000，均为正整数；所有连接含pre_ping有服务器侧默认边界。工作流语句额外用SET LOCAL裁剪到T03剩余时间，事务结束清除，避免池中泄漏设置。取消/截止后拒绝新业务SQL；租约释放可绕过已耗尽的请求预算，但仍受默认SQL边界约束，不重试业务写入。池等待和建连分别由既有5秒默认值限制，不被动态语句截止替代，故不承诺硬实时HTTP取消。多工作进程应保持主机时钟同步；单调活动时间不会倒退，但墙钟调整可能影响TTL/租约的实际到期时刻。
 
 回退旧二进制前必须排空在途请求并审核数据库版本。旧二进制检查0002版本，不能直接带新Schema启动；downgrade会删除操作租约表，需另行明确批准后才能执行。本轮没有执行downgrade或删除历史数据。
+
+
+T09b补充：get_session内部messages仅返回受限最近窗口，message_count仍为数据库总条数；批次保存只追加窗口后新增消息，不把窗口当成完整归档覆盖。所有原始历史仍在session_messages，导出/恢复保留完整记录。容量与失效语义见[MEMORY.md](MEMORY.md)。

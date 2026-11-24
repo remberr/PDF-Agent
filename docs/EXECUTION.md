@@ -34,3 +34,6 @@ T06（2026-11-24）经批准增量扩展。JSON `/ask` 与 SSE `/ask/stream` 共
 apiRequest从unknown校验结果与会话结构，ApiError保留HTTP状态；404、5xx、网络失败不再混为会话丢失。SSE在拼接字节后归一化CRLF，校验完整帧，EOF无完整result报中断；单帧2,000,000字符上限，result完成即取消/释放reader，不等无限EOF。取消保留AbortError并终止reader；不重发请求。缺execution的旧payload可读，但显示未确认，不把所有节点推定为完成。
 
 App按RequestScope忽略陈旧回调；上传、恢复、问答及新会话切换有AbortSignal。取消仅影响当前问答，不删除已有结果；点击新会话仍沿用原来经用户交互确认后创建/删除旧会话的行为。暂时恢复失败保留本地历史，提供仅GET的连接重试，不重发生成。404仅失效会话入口，恢复时保留旧对话缓存；localStorage异常不阻断当前页面，但刷新恢复可能不可用。浏览器组件挂载和真实网络中断尚未E2E验证。
+
+
+T09b补充：Memory不可用但正文成功时节点/整体为degraded；缓存/容量/失效原因可为memory_capacity、memory_wait_timeout、memory_invalidated、memory_summary_failed或原model_*原因。不增加修复/重发，缓存命中不复制发起请求usage。失败/取消assistant历史不用于新Memory，详见[MEMORY.md](MEMORY.md)。

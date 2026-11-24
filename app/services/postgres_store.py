@@ -11,6 +11,7 @@ from sqlalchemy import select, insert, update, delete, func
 from app.db.runtime import get_engine, verify_schema, dispose_engine
 from app.db.schema import sessions, messages, documents, chunks, request_leases
 from utils.embeddings import PROFILE_ID, validate_vectors
+from utils.memory_limits import HistoryWindow, load_memory_limits
 
 SESSION_TTL_SECONDS = int(os.getenv('SESSION_TTL_SECONDS', '86400'))
 SESSION_CLEANUP_INTERVAL_SECONDS = int(os.getenv('SESSION_CLEANUP_INTERVAL_SECONDS', '3600'))
@@ -89,6 +90,8 @@ def release_session_lease(sid: str, lease_id) -> None:
 def get_session(sid):
     if not isinstance(sid, str) or not re.fullmatch('[a-f0-9]{32}', sid):
         return None
+    limit = load_memory_limits().history_messages
+    expired = False
     with get_engine().begin() as connection:
         row = connection.execute(select(sessions).where(sessions.c.session_id == sid).with_for_update()).mappings().first()
         if row is None:
@@ -96,14 +99,21 @@ def get_session(sid):
         now = timestamp()
         if retention_enabled() and row['updated_at'].timestamp() <= now.timestamp() - SESSION_TTL_SECONDS and not _has_lease(connection, sid, now):
             connection.execute(delete(sessions).where(sessions.c.session_id == sid))
-            return None
-        now = max(row['updated_at'], now)
-        connection.execute(update(sessions).where(sessions.c.session_id == sid).values(updated_at=now))
-        history = connection.execute(select(messages.c.payload).where(messages.c.session_id == sid).order_by(messages.c.ordinal)).scalars().all()
-        names = connection.execute(select(documents.c.filename).where(documents.c.session_id == sid).order_by(documents.c.document_id)).scalars().all()
-        has_chunks = connection.scalar(select(chunks.c.chunk_id).where(chunks.c.session_id == sid).limit(1)) is not None
+            expired = True
+        else:
+            now = max(row['updated_at'], now)
+            connection.execute(update(sessions).where(sessions.c.session_id == sid).values(updated_at=now))
+            total = connection.scalar(select(func.count()).select_from(messages).where(messages.c.session_id == sid))
+            history = list(reversed(connection.execute(select(messages.c.payload).where(
+                messages.c.session_id == sid).order_by(messages.c.ordinal.desc()).limit(limit)).scalars().all()))
+            names = connection.execute(select(documents.c.filename).where(documents.c.session_id == sid).order_by(documents.c.document_id)).scalars().all()
+            has_chunks = connection.scalar(select(chunks.c.chunk_id).where(chunks.c.session_id == sid).limit(1)) is not None
+    if expired:
+        from utils.memory import invalidate_memory
+        invalidate_memory(sid)
+        return None
     from utils.pgvector_store import SessionVectorStore
-    return dict(session_id=sid, loaded_pdfs=names, messages=history,
+    return dict(session_id=sid, loaded_pdfs=names, messages=HistoryWindow(history, total), message_count=total,
                 vectorstore=SessionVectorStore(sid) if has_chunks else None,
                 document_count=row['document_count'], created_at=int(row['created_at'].timestamp()),
                 updated_at=int(now.timestamp()), _persisted_message_count=len(history), _message_batch_id=uuid4())
@@ -132,6 +142,8 @@ def save_session(session):
             connection.execute(insert(messages), [dict(session_id=sid, ordinal=offset+i, payload=p,
                 batch_id=batch, batch_ordinal=i) for i,p in enumerate(payloads)])
         connection.execute(update(sessions).where(sessions.c.session_id == sid).values(updated_at=now))
+        total = connection.scalar(select(func.count()).select_from(messages).where(messages.c.session_id == sid))
+    session['message_count'] = total
     session['_persisted_message_count'] = len(session['messages'])
     session['_message_batch_id'] = uuid4()
     session['updated_at'] = int(now.timestamp())
@@ -162,7 +174,11 @@ def commit_document(sid, filename, page_count, items, vectors, *, size_bytes=Non
 
 def delete_session(sid):
     with get_engine().begin() as connection:
-        return connection.execute(delete(sessions).where(sessions.c.session_id == sid)).rowcount > 0
+        deleted = connection.execute(delete(sessions).where(sessions.c.session_id == sid)).rowcount > 0
+    if deleted:
+        from utils.memory import invalidate_memory
+        invalidate_memory(sid)
+    return deleted
 
 
 def delete_document(sid, filename):
@@ -191,5 +207,8 @@ def cleanup_expired_sessions(now=None):
             return {'expired_sessions': 0, 'orphaned_vectorstores': 0}
         active = select(request_leases.c.lease_id).where(request_leases.c.session_id == sessions.c.session_id,
             request_leases.c.expires_at > reference).exists()
-        count = connection.execute(delete(sessions).where(sessions.c.updated_at <= cutoff, ~active)).rowcount
-    return {'expired_sessions': count, 'orphaned_vectorstores': 0}
+        removed = connection.execute(delete(sessions).where(sessions.c.updated_at <= cutoff, ~active).returning(sessions.c.session_id)).scalars().all()
+    from utils.memory import invalidate_memory
+    for sid in removed:
+        invalidate_memory(sid)
+    return {'expired_sessions': len(removed), 'orphaned_vectorstores': 0}

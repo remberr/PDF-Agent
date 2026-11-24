@@ -168,3 +168,10 @@ try {
 ## 时间、在途及SQL集成（T05a）
 
 在上述独立TEST_DATABASE_URL安全规则下设置PDF_AGENT_RUN_POSTGRES_TESTS=1，运行`python -B -m unittest tests.test_session_concurrency tests.test_db_config -v`。8项PG场景覆盖屏障控制锁后时间/不倒退、跨TTL/释放/崩溃过期、主动删除/无复活、取消关闭租约归还、关闭TTL仅清理操作租约、lock/statement timeout回滚与池复用，以及T03剩余截止和SET LOCAL不泄漏；配置回归拒绝零/非法超时。迁移回归升级非空旧Schema后核对原会话元数据与新revision，不执行历史库降级。无生产数据库与真实LLM依赖。
+
+
+## Memory 回归（T09b）
+
+默认离线`python -B -m unittest tests.test_memory_limits tests.test_llm_budget tests.test_prompt_cache -v`：Mock/Fake覆盖相同文本跨会话隔离、未知会话不全局复用、慢摘要不阻塞其他会话、并发合并且只计发起者usage、等待截止/发起者取消、LRU/TTL、容量耗尽、在途失效、版本/文件上下文变更、长历史UTF-8字节界限、非法配置、失败历史排除及Memory失败整体degraded/未知费用不归零。
+
+独立测试库并打开PDF_AGENT_RUN_POSTGRES_TESTS后运行`python -B -m unittest tests.test_memory_limits_pg -v`；验证历史LIMIT窗口与完整DB记录并存、公开message_count不变、并发窗口追加/幂等、删除及TTL使缓存失效。全部数据为合成记录，不使用用户历史库。完整回归仍按本文件unittest discover执行。没有真实模型的长对话语义质量/E2E保证。
